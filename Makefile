@@ -22,3 +22,10 @@ DISTRIBUTABLES += presets
 
 # Include the Rack plugin Makefile framework
 include $(RACK_DIR)/plugin.mk
+
+mm-plugin:
+	cmake -B build -G Ninja
+	cmake --build build
+
+install-mm-sdk:
+	cd .. && git clone https://github.com/4ms/metamodule-plugin-sdk --recursive
