@@ -145,7 +145,12 @@ struct FlowerPatch : Module {
         fftOutput   = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
         
         if (!audioBuffer || !fftOutput || !isAligned(audioBuffer, 16) || !isAligned(fftOutput, 16)) {
+#ifdef METAMODULE
+			printf("Memory allocation failed or is not aligned");
+		 	return;
+#else
             throw std::runtime_error("Memory allocation failed or is not aligned");
+#endif
         }
 
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
