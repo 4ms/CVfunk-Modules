@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.22)
 #
 if (DEFINED ENV{METAMODULE_SDK_DIR})
     set(METAMODULE_SDK_DIR "$ENV{METAMODULE_SDK_DIR}")
-else()
+elseif("${METAMODULE_SDK_DIR}" STREQUAL "")
     set(METAMODULE_SDK_DIR "${CMAKE_CURRENT_LIST_DIR}/../metamodule-plugin-sdk")
 endif()
 include(${METAMODULE_SDK_DIR}/plugin.cmake)
