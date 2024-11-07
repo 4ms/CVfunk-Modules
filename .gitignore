@@ -77,3 +77,4 @@
 .DS_Store
 build
 metamodule-plugins
+metamodule-plugin-sdk
