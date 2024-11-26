@@ -261,7 +261,7 @@ struct PentaSequencer : Module {
             knobMapping[i] = knobIndex;  // Store the knob mapping for later use
 
             targetVoltage = knobValues[knobIndex];
-            float slewRate = params[SLEW_PARAM].getValue(); // This gives a value between 0 and 1
+            float slewRate = std::clamp(params[SLEW_PARAM].getValue(), 1e-6f, 1.f); // This gives a value between 0 and 1
 
             // Calculate the absolute voltage difference from the last target
             float voltageDifference = fabs(targetVoltage - lastTargetVoltages[i]);
@@ -271,8 +271,8 @@ struct PentaSequencer : Module {
             float adjustedTriggerInterval = fmax(triggerInterval, 1e-6f);
             float slewSpeed = voltageDifference / adjustedTriggerInterval; // Voltage difference per second
 
-            // Apply the SLEW_PARAM knob to scale the slewSpeed, adding 1e-6 to avoid division by zero
-            slewSpeed *= 1.0f / (slewRate + 1e-6f);
+            // Apply the SLEW_PARAM knob to scale the slewSpeed
+            slewSpeed *= 1.0f / slewRate;
 
             // Set the rise and fall speeds of the slew limiter to the calculated slew speed
             slewLimiters[i].setRiseFall(slewSpeed, slewSpeed);
