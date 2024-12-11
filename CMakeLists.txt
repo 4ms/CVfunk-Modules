@@ -47,7 +47,7 @@ target_sources(CVfunk
 	${SOURCE_DIR}/src/Ranges.cpp
 	${SOURCE_DIR}/src/Signals.cpp
 	${SOURCE_DIR}/src/Steps.cpp
-	${SOURCE_DIR}/src/Stepwave.cpp
+	${SOURCE_DIR}/src/StepWave.cpp
 	${SOURCE_DIR}/src/Steps.cpp
 	${SOURCE_DIR}/src/Strings.cpp
 	${SOURCE_DIR}/src/Syncro.cpp
