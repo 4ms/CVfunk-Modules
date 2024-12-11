@@ -12,7 +12,7 @@ void init(Plugin* p) {
 	p->addModel(modelEnvelopeArray);
 	p->addModel(modelPentaSequencer);
 	p->addModel(modelImpulseController);
-	p->addModel(modelSignals);
+	//p->addModel(modelSignals);
 	p->addModel(modelRanges);
 	p->addModel(modelHexMod);
 	p->addModel(modelCollatz);
@@ -20,7 +20,7 @@ void init(Plugin* p) {
 	p->addModel(modelMagnets);
 	p->addModel(modelOuros);
 	p->addModel(modelPressedDuck);
-	p->addModel(modelFlowerPatch);
+	//p->addModel(modelFlowerPatch);
 	p->addModel(modelSyncro);
 	p->addModel(modelNona);
 	p->addModel(modelDecima);
