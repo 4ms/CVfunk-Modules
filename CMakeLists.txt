@@ -34,7 +34,7 @@ target_sources(CVfunk
     ${SOURCE_DIR}/src/Collatz.cpp
     ${SOURCE_DIR}/src/Decima.cpp
     ${SOURCE_DIR}/src/EnvelopeArray.cpp
-    ${SOURCE_DIR}/src/FlowerPatch.cpp
+    #${SOURCE_DIR}/src/FlowerPatch.cpp
     ${SOURCE_DIR}/src/HexMod.cpp
     ${SOURCE_DIR}/src/ImpulseController.cpp
     ${SOURCE_DIR}/src/Magnets.cpp
@@ -45,7 +45,7 @@ target_sources(CVfunk
     ${SOURCE_DIR}/src/PreeeeeeeeeeessedDuck.cpp
 	${SOURCE_DIR}/src/PressedDuck.cpp
 	${SOURCE_DIR}/src/Ranges.cpp
-	${SOURCE_DIR}/src/Signals.cpp
+    #${SOURCE_DIR}/src/Signals.cpp
 	${SOURCE_DIR}/src/Steps.cpp
 	${SOURCE_DIR}/src/StepWave.cpp
 	${SOURCE_DIR}/src/Steps.cpp
