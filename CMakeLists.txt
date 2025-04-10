@@ -24,6 +24,7 @@ set(SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR})
 target_sources(CVfunk
     PRIVATE
     ${SOURCE_DIR}/src/Arrange.cpp
+	${SOURCE_DIR}/src/Cartesia.cpp
     ${SOURCE_DIR}/src/Collatz.cpp
     ${SOURCE_DIR}/src/Decima.cpp
     ${SOURCE_DIR}/src/EnvelopeArray.cpp
@@ -39,11 +40,11 @@ target_sources(CVfunk
 	${SOURCE_DIR}/src/PressedDuck.cpp
 	${SOURCE_DIR}/src/Ranges.cpp
 	${SOURCE_DIR}/src/Signals.cpp
-	${SOURCE_DIR}/src/Steps.cpp
 	${SOURCE_DIR}/src/StepWave.cpp
 	${SOURCE_DIR}/src/Steps.cpp
 	${SOURCE_DIR}/src/Strings.cpp
 	${SOURCE_DIR}/src/Syncro.cpp
+	${SOURCE_DIR}/src/Tatami.cpp
 	${SOURCE_DIR}/src/TriDelay.cpp
 	${SOURCE_DIR}/src/plugin.cpp
 )

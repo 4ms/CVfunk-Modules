@@ -87,6 +87,14 @@
     {
       "slug": "TriDelay",
       "name": "Tri Delay"
+    },
+    {
+      "slug": "Cartesia",
+      "name": "Cartesia"
+    },
+    {
+      "slug": "Tatami",
+      "name": "Tatami"
     }
     ]
 }
