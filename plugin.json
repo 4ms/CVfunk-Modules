@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.11",
+  "version": "2.0.15",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -50,7 +50,7 @@
         "Visual"
       ]
     },
-   {
+    {
       "slug": "Signals",
       "name": "Signals",
       "description": "A small six-channel oscilloscope for visualizing rack signals.",
@@ -58,7 +58,7 @@
         "Visual"
       ]
     },
-   {
+    {
       "slug": "Ranges",
       "name": "Ranges",
       "description": "Convert two input voltages into equal intervals.",
@@ -67,7 +67,7 @@
         "Attenuator"
       ]
     },
-   {
+    {
       "slug": "HexMod",
       "name": "Hex Mod",
       "description": "Six phase-related LFOs with rate sync and individual phase reset triggers.",
@@ -76,7 +76,7 @@
         "Visual"
       ]
     },
-   {
+    {
       "slug": "Collatz",
       "name": "Collatz",
       "description": "Clock-synchronized trigger burst generator, based on sequences of the Collatz conjecture.",
@@ -85,7 +85,7 @@
         "Clock modulator"
       ]
     },
-   {
+    {
       "slug": "Strings",
       "name": "Strings",
       "description": "Generates guitar chords from a button interface or CV. Implements bending, whammy bar and capo.",
@@ -94,7 +94,7 @@
         "Quantizer"
       ]
     },
-  {
+    {
       "slug": "Ouros",
       "name": "Ouros",
       "description": "A stereo phase injection oscillator, with polar waveform display.",
@@ -103,7 +103,7 @@
         "Polyphonic"
       ]
     },
-  {
+    {
       "slug": "PressedDuck",
       "name": "Pressed Duck",
       "description": "A stereo six-channel dynamic compressing mixer with side-chain ducking, tanh saturation and ADAA.",
@@ -116,7 +116,7 @@
         "Voltage-controlled Amplifier"
       ]
     },
-  {
+    {
       "slug": "PreeeeeeeeeeessedDuck",
       "name": "Preeeeeeeeeeessed Duck",
       "description": "A stereo sixteen-channel dynamic compressing mixer with side-chain ducking, tanh saturation and ADAA.",
@@ -129,7 +129,7 @@
         "Voltage-controlled Amplifier"
       ]
     },
-  {
+    {
       "slug": "FlowerPatch",
       "name": "Flower Patch",
       "description": "A 12-tone scale polar visualizer with FFT analysis.",
@@ -138,7 +138,7 @@
         "Utility"
       ]
     },
-	{
+    {
       "slug": "Magnets",
       "name": "Magnets",
       "description": "Simulate and interact with a small magnetic spin-lattice.",
@@ -147,7 +147,7 @@
         "Low-frequency oscillator"
       ]
     },
-	{
+    {
       "slug": "Syncro",
       "name": "Syncro",
       "description": "Eight channel clock ratio generator.",
@@ -156,7 +156,7 @@
         "Clock modulator"
       ]
     },
-	{
+    {
       "slug": "Nona",
       "name": "Nona",
       "description": "Nine-channel CV gain/offset utility mixer.",
@@ -165,7 +165,7 @@
         "Utility"
       ]
     },
-	{
+    {
       "slug": "Decima",
       "name": "Decima",
       "description": "Ten-channel gate sequencer with per-step probability.",
@@ -174,7 +174,7 @@
         "Utility"
       ]
     },
-	{
+    {
       "slug": "Morta",
       "name": "Morta",
       "description": "Single-knob macro-controller utility with 16 simultaneous outputs in different ranges.",
@@ -184,7 +184,7 @@
         "Polyphonic"
       ]
     },
-	{
+    {
       "slug": "StepWave",
       "name": "Step Wave",
       "description": "8-step programmable sequencer/envelope generator with rhythmic displacement and variable shape.",
@@ -192,7 +192,7 @@
         "Sequencer"
       ]
     },
-	{
+    {
       "slug": "Arrange",
       "name": "Arrange",
       "description": "A seven channel sequencer with quantize/volt option per channel, and adjustable length.",
@@ -200,14 +200,31 @@
         "Sequencer"
       ]
     },
-	{
+    {
       "slug": "TriDelay",
       "name": "Tri Delay",
       "description": "A three tap delay line.",
       "tags": [
         "Delay"
       ]
+    },
+    {
+      "slug": "Tatami",
+      "name": "Tatami",
+      "description": "A stereo polyphonic wave-shaper and wave-folder with display and ADAA antialising.",
+      "tags": [
+        "Waveshaper",
+        "Polyphonic"
+      ]
+    },
+    {
+      "slug": "Cartesia",
+      "name": "Cartesia",
+      "description": "A 4x4x4 sequencer for both quantized and non-quantized voltages, gates per step, and polyphonic outputs with stacked z-layer options.",
+      "tags": [
+        "Sequencer",
+        "Polyphonic"
+      ]
     }
-
   ]
 }
