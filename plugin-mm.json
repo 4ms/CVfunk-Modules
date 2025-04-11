@@ -1,8 +1,10 @@
 {
-    "MetaModulePluginMaintainer": "",
-    "MetaModulePluginMaintainerEmail": "",
-    "MetaModulePluginMaintainerUrl": "",
-    "MetaModuleDescription": "",
+	"MetaModuleBrandName": "CV funk",
+	"MetaModuleBrandSlug": "CVfunk",
+	"MetaModulePluginMaintainer": "4ms Company",
+	"MetaModulePluginMaintainerEmail": "4ms@4mscompany.com",
+	"MetaModulePluginMaintainerUrl": "https://metamodule.info",
+	"MetaModuleDescription": "CV funk modules ported from VCV",
     "MetaModuleIncludedModules": [
     {
       "slug": "Steps",
