@@ -258,7 +258,9 @@ struct Arrange : Module {
             smartKnobStates[i].store(false);
         }
         
+#if !defined(METAMODULE)
         paramQuantities[STAGE_SELECT]->displayOffset = 1.0f;                
+#endif
         
     }
 
@@ -279,6 +281,14 @@ struct Arrange : Module {
             params[CHAN_1_KNOB + i].setValue(0.f);  //set param knobs to zero
         }       
     }
+
+	void set_stage_select(float value) {
+#if defined(METAMODULE)
+			paramQuantities[STAGE_SELECT]->setImmediateValue((value - 1) / (float)(maxStages - 1));
+#else
+            paramQuantities[STAGE_SELECT]->setDisplayValue(value);
+#endif
+	}
 
     void process(const ProcessArgs &args) override {    
 
@@ -315,8 +325,12 @@ struct Arrange : Module {
         
         // Dynamically reconfigure the Stage knob based on the Max, if Max changes
         if (maxStages != prevMaxStages) {
-            paramQuantities[STAGE_SELECT]->setDisplayValue(0.f);
+#if defined(METAMODULE)
+			paramQuantities[STAGE_SELECT]->setImmediateValue(0);
+#else
+            paramQuantities[STAGE_SELECT]->setDisplayValue(1.f);
             paramQuantities[STAGE_SELECT]->displayMultiplier = (maxStages - 1);            
+#endif
             prevMaxStages = maxStages;        
             resizeEvent = true;
         }
@@ -330,7 +344,7 @@ struct Arrange : Module {
                     recordLatched = false;
                 }
             }
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
+			set_stage_select(currentStage+1);
         } else if (inputs[FORWARD_INPUT].isConnected()) {
             bool forwardCurrentState = forwardInput.process(inputs[FORWARD_INPUT].getVoltage());
             if (forwardCurrentState && !prevForwardState) { // Rising edge detected
@@ -342,7 +356,7 @@ struct Arrange : Module {
                         recordLatched = false;
                     }
                 }
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
+				set_stage_select(currentStage+1);
             }
             prevForwardState = forwardCurrentState; // Update previous state
         }
@@ -353,7 +367,7 @@ struct Arrange : Module {
             if (currentStage < 0) {
                 currentStage = maxStages - 1;  // Wrap around to the last stage
             }
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
+			set_stage_select(currentStage+1);
         } else if (inputs[BACKWARDS_INPUT].isConnected()) {
             bool backwardCurrentState = backwardInput.process(inputs[BACKWARDS_INPUT].getVoltage());
             if (backwardCurrentState && !prevBackwardState) { // Rising edge detected
@@ -361,7 +375,7 @@ struct Arrange : Module {
                 if (currentStage < 0) {
                     currentStage = maxStages - 1;  // Wrap around to the last stage
                 }
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
+				set_stage_select(currentStage+1);
             }
             prevBackwardState = backwardCurrentState; // Update previous state
         } 
@@ -369,12 +383,12 @@ struct Arrange : Module {
         // Handle button press for Reset last
         if (resetTrigger.process(params[RESET_BUTTON].getValue())) {
             currentStage = 0;  // Reset to the first stage
-            paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
+			set_stage_select(currentStage+1);
         } else if (inputs[RESET_INPUT].isConnected()) {
             bool resetCurrentState = resetInput.process(inputs[RESET_INPUT].getVoltage());
             if (resetCurrentState && !prevResetState) { // Rising edge detected
                 currentStage = 0;  // Reset to the first stage
-                paramQuantities[STAGE_SELECT]->setDisplayValue(currentStage+1);
+				set_stage_select(currentStage+1);
             }
             prevResetState = resetCurrentState; // Update previous state
         }
