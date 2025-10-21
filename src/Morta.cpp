@@ -44,7 +44,6 @@ struct Morta : Module {
 
     float inputValue = 0.f;
     float displayValue = 0.0f;
-    DigitalDisplay* voltDisplay = nullptr;
 
     Morta() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
@@ -80,6 +79,9 @@ struct Morta : Module {
         configOutput(OUTPUT_4_2, "5▸0" );
         configOutput(OUTPUT_4_3, "10▸0");
         configOutput(OUTPUT_4_4, "R▸0" );
+
+        configOutput(MAIN_OUTPUT, "Main" );
+
       
         isEditing[0] = false; // Initialize editing state to false    
     }
@@ -169,6 +171,7 @@ struct Morta : Module {
 };
 
 struct MortaWidget : ModuleWidget {
+    DigitalDisplay* voltDisplay = nullptr;
 
     //Define a SmartKnob that tracks if we are turning it
     template <typename BaseKnob>
@@ -203,7 +206,6 @@ struct MortaWidget : ModuleWidget {
     using SmartTrimpot = SmartKnob<Trimpot>;
     using SmartRoundLargeBlackKnob = SmartKnob<RoundLargeBlackKnob>;
     using SmartRoundHugeBlackKnob = SmartKnob<RoundHugeBlackKnob>;
-
 
     MortaWidget(Morta* module) {
         setModule(module);
@@ -245,11 +247,9 @@ struct MortaWidget : ModuleWidget {
         //Main CV Output
         addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(box.size.x/2 + 55, 119), module, Morta::MAIN_OUTPUT));
 
-        if (module) {
-            // Volt Display Initialization
-            module->voltDisplay = createDigitalDisplay(Vec(box.size.x / 2 - 32, 110), "0.000 V");
-            addChild(module->voltDisplay);
-        }
+        // Volt Display Initialization
+        voltDisplay = createDigitalDisplay(Vec(box.size.x / 2 - 25, 110), "0.000 V");
+        addChild(voltDisplay);
 
     }
 
@@ -259,13 +259,13 @@ struct MortaWidget : ModuleWidget {
         if (!module) return;
     
         // Update BPM and Swing displays
-        if (module->voltDisplay) {
+        if (voltDisplay) {
             char voltText[16];
             
             // Display the input value for the top channel (channel 0)
             snprintf(voltText, sizeof(voltText), "%.3f V", module->displayValue); 
             
-            module->voltDisplay->text = voltText;
+            voltDisplay->text = voltText;
         }
     }
 

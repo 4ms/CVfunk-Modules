@@ -185,8 +185,6 @@ struct Tatami : Module {
     float inputR[16] = {0.0f};
     float envPeakL[16] = {0.0f};
     float envPeakR[16] = {0.0f};
-    float envelopeL[16] = {0.0f};
-    float envelopeR[16] = {0.0f};
     float filteredEnvelopeL[16] = {0.0f};
     float filteredEnvelopeR[16] = {0.0f};
     float lastOutputL = 0.0f;
@@ -615,7 +613,7 @@ struct TatamiWidget : ModuleWidget {
                 heightScale = centerY / 5; // Calculate based on current center Y
 
                 drawWaveform(args, module->waveBuffers[1], nvgRGBAf(0.3, 0.3, 0.3, 0.8));
-                drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0, 0.4, 1, 0.8));
+                drawWaveform(args, module->waveBuffers[0], nvgRGBAf(0, 0.7, 1, 0.9));
             }
 
             TransparentWidget::drawLayer(args, layer);

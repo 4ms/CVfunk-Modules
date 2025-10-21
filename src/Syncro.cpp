@@ -69,11 +69,6 @@ struct Syncro : Module {
         NUM_LIGHTS
     };
 
-    DigitalDisplay* phasorDisplay = nullptr;
-    DigitalDisplay* bpmDisplay = nullptr;
-    DigitalDisplay* swingDisplay = nullptr;
-    DigitalDisplay* ratioDisplays[8] = {nullptr};
-
     Light fillLights[8];
     Light gateStateLights[18];
 
@@ -355,61 +350,62 @@ struct Syncro : Module {
                         resetPulse = false;
                     }
                 } else {
-                if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
-                    swingCount++;
-                    if (swingCount > 1.f){
-                        SwingTimer.reset();
-                        swingCount = 0;
-                    }
-                }
-            }
-        }
+					if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
+						swingCount++;
+						if (swingCount > 1.f){
+							SwingTimer.reset();
+							swingCount = 0;
+						}
+					}
+				}
+			}
 
-        if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
-            ClockTimer[i].reset();
-            
-            if (i < 1) {  // Master clock reset point
-                masterClockCycle++;
-                // Rotate phases
-                for (int k = 1; k < 9; k++) {
-                    int newIndex = (k + clockRotate) % 8;
-                    if (newIndex < 0) {
-                        newIndex += 8; // Adjust for negative values to wrap around correctly
-                    }
-                        tempPhases[newIndex + 1] = phases[k];
-                    }
-                    for (int k = 1; k < 9; k++) {
-                        phases[k] = tempPhases[k];
-                    }
+			if (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) {
+			
+				ClockTimer[i].reset();
+				
+				if (i < 1) {  // Master clock reset point
+					masterClockCycle++;
+					// Rotate phases
+					for (int k = 1; k < 9; k++) {
+						int newIndex = (k + clockRotate) % 8;
+						if (newIndex < 0) {
+							newIndex += 8; // Adjust for negative values to wrap around correctly
+						}
+						tempPhases[newIndex + 1] = phases[k];
+					}
+					for (int k = 1; k < 9; k++) {
+						phases[k] = tempPhases[k];
+					}
 
-                    for (int j = 1; j < 9; j++) {
-                        if (masterClockCycle % lcmWithMaster[j] == 0) {
-                           ClockTimer[j].reset();
-                        }
+					for (int j = 1; j < 9; j++) {
+						if (masterClockCycle % lcmWithMaster[j] == 0) {
+						   ClockTimer[j].reset();
+						}
 
-                        if (resyncFlag[j]) {
-                           ClockTimer[j].reset();
-                           resyncFlag[j] = false;
-                        }
+						if (resyncFlag[j]) {
+						   ClockTimer[j].reset();
+						   resyncFlag[j] = false;
+						}
 
-                        int index = (clockRotate + j - 1) % 8;
-                        if (index < 0) {
-                           index += 8; // Adjust for negative values to wrap around correctly
-                        }
+						int index = (clockRotate + j - 1) % 8;
+						if (index < 0) {
+						   index += 8; // Adjust for negative values to wrap around correctly
+						}
 
-                        multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
-                        divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
-                        if (divide[j] <= 0) {
-                            divide[j] = 1.0f; // Now safe to use divide[j] for divisions
-                        }
-                        ratio[j] = multiply[j] / divide[j]; 
+						multiply[j] = std::roundf(params[MULTIPLY_KNOB_1 + index].getValue()) + (fill[j-1] ? fillGlobal : 0);
+						divide[j] = std::roundf(params[DIVIDE_KNOB_1 + index].getValue());
+						if (divide[j] <= 0) {
+							divide[j] = 1.0f; // Now safe to use divide[j] for divisions
+						}
+						ratio[j] = multiply[j] / divide[j]; 
 
-                        if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
-                            resyncFlag[j] = true;
-                        }
-                    }
-                }
-            }
+						if (fill[j] || ratio[j] != multiply[j] / divide[j]) {
+							resyncFlag[j] = true;
+						}
+					}
+				}
+			}
 
             // Apply swing as a global adjustment to the phase increment
             if (bpm <= 0) bpm = 1.0f;  // Ensure bpm is positive and non-zero
@@ -426,7 +422,7 @@ struct Syncro : Module {
 
                     // Compute phase offset from pulse width input
                     float phase_offset = params[WIDTH_KNOB].getValue() + 
-                                         (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
+										 (inputs[WIDTH_INPUT].isConnected() ? 0.1f * inputs[WIDTH_INPUT].getVoltage() * params[WIDTH_ATT].getValue() : 0.0f);
                     phase_offset = clamp(phase_offset, 0.f, 1.0f);
 
                     // Calculate adjusted phase and use fmod for safe modulo operation
@@ -508,6 +504,10 @@ struct Syncro : Module {
 };
 
 struct SyncroWidget : ModuleWidget {
+    DigitalDisplay* phasorDisplay = nullptr;
+    DigitalDisplay* bpmDisplay = nullptr;
+    DigitalDisplay* swingDisplay = nullptr;
+    DigitalDisplay* ratioDisplays[8] = {nullptr};
 
     SyncroWidget(Syncro* module) {
         setModule(module);
@@ -575,25 +575,24 @@ struct SyncroWidget : ModuleWidget {
             addOutput(createOutputCentered<ThemedPJ301MPort>(Vec(368,35 + i * 38), module, Syncro::CLOCK_OUTPUT + 2*i + 1));
         }
 
-        if (module) {
-            // BPM Display Initialization
-            module->bpmDisplay = createDigitalDisplay(Vec(27, 28), "120.0");
-            addChild(module->bpmDisplay);
+		// BPM Display Initialization
+		bpmDisplay = createDigitalDisplay(Vec(27, 28), "120.0");
+		addChild(bpmDisplay);
 
-            // Swing Display Initialization
-            module->swingDisplay = createDigitalDisplay(Vec(90, 28), "0.0%");
-            addChild(module->swingDisplay);
+		// Swing Display Initialization
+		swingDisplay = createDigitalDisplay(Vec(90, 28), "0.0%");
+		addChild(swingDisplay);
 
-            // Phasor Display Initialization
-            module->phasorDisplay = createDigitalDisplay(Vec(230, 26), "");
-            addChild(module->phasorDisplay);
+		// Phasor Display Initialization
+		phasorDisplay = createDigitalDisplay(Vec(230, 26), "");
+		addChild(phasorDisplay);
 
-            // Ratio Displays Initialization
-            for (int i = 0; i < 8; i++) {
-                module->ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:1");
-                addChild(module->ratioDisplays[i]);
-            }
-        }
+		// Ratio Displays Initialization
+		for (int i = 0; i < 8; i++) {
+			ratioDisplays[i] = createDigitalDisplay(Vec(210, 65 + i * 38), "1:4");
+			addChild(ratioDisplays[i]);
+		}
+        
     }
 
     void appendContextMenu(Menu* menu) override {
@@ -671,27 +670,27 @@ struct SyncroWidget : ModuleWidget {
         if (!module) return;
 
         // Update BPM and Swing displays
-        if (module->bpmDisplay) {
+        if (bpmDisplay) {
             char bpmText[16];
             if (module->clockCVAsVoct) {
                 snprintf(bpmText, sizeof(bpmText), "▸%.1f", module->bpm);//symbol indicates v/oct mode
             } else {
                 snprintf(bpmText, sizeof(bpmText), "%.1f", module->bpm);
             }
-            module->bpmDisplay->text = bpmText;
+            bpmDisplay->text = bpmText;
         }
 
-        if (module->swingDisplay) {
+        if (swingDisplay) {
             char swingText[16];
             snprintf(swingText, sizeof(swingText), "%.1f%%", module->swing);
-            module->swingDisplay->text = swingText;
+            swingDisplay->text = swingText;
         }
 
-        if (module->phasorDisplay) {
+        if (phasorDisplay) {
             if (module->phasorMode){
-                module->phasorDisplay->text = "Phasor Mode";
+                phasorDisplay->text = "Phasor Mode";
             } else {
-                module->phasorDisplay->text = "";
+                phasorDisplay->text = "";
             }
         }
 
@@ -704,13 +703,13 @@ struct SyncroWidget : ModuleWidget {
 
             module->disp_multiply[i] = round(module->params[Syncro::MULTIPLY_KNOB_1 + index].getValue()) + (module->fill[i-1] ? module->fillGlobal : 0);
             module->disp_divide[i] = round(module->params[Syncro::DIVIDE_KNOB_1 + index].getValue());
-            if (module->ratioDisplays[i-1]) {
+            if (ratioDisplays[i-1]) {
                 char ratioText[16];
                 snprintf(ratioText, sizeof(ratioText), "%d:%d", static_cast<int>(module->disp_multiply[i]), static_cast<int>(module->disp_divide[i]));
                 if (index == 0) { // Check if the current index corresponds to the rotated position
-                    module->ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
+                    ratioDisplays[i-1]->text = "▸" + std::string(ratioText);
                 } else {
-                    module->ratioDisplays[i-1]->text = ratioText;
+                    ratioDisplays[i-1]->text = ratioText;
                 }
             }
         }

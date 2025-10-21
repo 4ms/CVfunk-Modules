@@ -31,4 +31,21 @@ extern Model* modelArrange;
 extern Model* modelTriDelay;
 extern Model* modelTatami;
 extern Model* modelCartesia;
+extern Model* modelJunkDNA;
+extern Model* modelPicus;
+extern Model* modelNode;
+extern Model* modelWeave;
+extern Model* modelWonk;
+extern Model* modelHammer;
+extern Model* modelHub;
+extern Model* modelCVfunkBlank;
+extern Model* modelCVfunkBlank4HP;
+extern Model* modelRat;
+extern Model* modelCount;
+extern Model* modelClpy;
+extern Model* modelTuner;
+extern Model* modelAlloy;
+
+
+
 
