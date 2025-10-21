@@ -97,6 +97,62 @@
     {
       "slug": "Tatami",
       "name": "Tatami"
+    },
+    {
+      "slug": "JunkDNA",
+      "name": "Junk DNA"
+    },
+    {
+      "slug": "Picus",
+      "name": "Picus"
+    },
+    {
+      "slug": "Node",
+      "name": "Node"
+    },
+    {
+      "slug": "Weave",
+      "name": "Weave"
+    },
+    {
+      "slug": "Wonk",
+      "name": "Wonk"
+    },
+    {
+      "slug": "Hammer",
+      "name": "Hammer"
+    },
+    {
+      "slug": "Hub",
+      "name": "Hub"
+    },
+    {
+      "slug": "CVfunkBlank",
+      "name": "CV funk Blank 8HP"
+    },
+    {
+      "slug": "CVfunkBlank4HP",
+      "name": "CV funk Blank 4HP"
+    },
+    {
+      "slug": "Rat",
+      "name": "Rat"
+    },
+    {
+      "slug": "Count",
+      "name": "Count"
+    },
+    {
+      "slug": "Clpy",
+      "name": "Clpy"
+    },
+    {
+      "slug": "Tuner",
+      "name": "Tuner"
+    },
+    {
+      "slug": "Alloy",
+      "name": "Alloy"
     }
     ]
 }
