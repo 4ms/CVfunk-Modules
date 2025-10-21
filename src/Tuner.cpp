@@ -270,23 +270,23 @@ struct Tuner : Module {
     CircularBuffer<float, 1024> waveBuffer[2];
 
     float sampleRate = 48000.f;
-    float increment_factor[2] = {0.f};
+    float increment_factor[2] = {0.f, 0.f};
 
-    float currentHz[2] = {0.f};
-    float currentVOct[2] = {0.f};
-    std::string currentNote[2] = {"---"};
-    std::string centsDeviation[2] = {"---"};
+    float currentHz[2] = {0.f, 0.f};
+    float currentVOct[2] = {0.f, 0.f};
+    std::string currentNote[2] = {"---", "---"};
+    std::string centsDeviation[2] = {"---", "---"};
 
-    int counter[2] = {0}; //CPU reduction counter
-    int prevSampleIndex[2] = {0};
+    int counter[2] = {0, 0}; //CPU reduction counter
+    int prevSampleIndex[2] = {0, 0};
     
     // --- Oscilloscope Engine ---
-    float prevIn[2] = {0.f};
+    float prevIn[2] = {0.f, 0.f};
     bool capturing[2] = {false, false};
-    float captureProgress[2] = {0.f}; // [0..1) over display window
+    float captureProgress[2] = {0.f, 0.f}; // [0..1) over display window
 
-    float offset[2]= {0.f};
-    float gain[2] = {1.0f};
+    float offset[2] = {0.f, 0.f};
+    float gain[2] = {1.0f, 1.0f};
 
     int updateSpeed = 8;
 
