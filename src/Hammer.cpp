@@ -203,15 +203,24 @@ struct Hammer : Module {
         configParam(SWING_KNOB, -99.0f, 99.0f, 0.0f, "Swing", " %");
 
         // Configure inputs and outputs
+#ifdef METAMODULE
+        configInput(EXT_CLOCK_INPUT, "Ext. Clock Input");
+#else
         configInput(EXT_CLOCK_INPUT, "Ext. Clock Input \n (Also accepts CHAIN from Hammer.) \n");
+#endif
         configInput(RESET_INPUT, "Reset");
         configInput(ON_OFF_INPUT, "ON/OFF");
         configOutput(CLOCK_OUTPUT, "Main Clock");
         for (int i=0; i<CHANNELS; i++){        
             configOutput(CLOCK_OUTPUT_1+i, "Clock " + std::to_string(i+1) );
         }
+#ifdef METAMODULE
+        configOutput(POLY_OUTPUT, "Poly Clock Out");
+        configOutput(CHAIN_OUTPUT, "CHAIN");
+#else
         configOutput(POLY_OUTPUT, "Poly Clock Out \n Ch 1-8 Clock Gate Outs \n Ch 9-16 Inverted Gate Outs");
         configOutput(CHAIN_OUTPUT, "CHAIN links to CLOCK input of Hammer or Picus.\n CHAIN");
+#endif
 
         configInput(CLOCK_INPUT, "Clock" );
         configInput(ROTATE_INPUT , "Rotation" );
