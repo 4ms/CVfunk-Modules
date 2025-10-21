@@ -113,24 +113,19 @@ struct Count : Module {
             if (inputText.empty()) {
                 maxCount = 1; // fallback
             } else {
-                try {
-                    std::string trimmed = inputText;
-                    long long parsed = std::stoll(trimmed);
+				long long parsed = atoll(inputText.data());
 
-                    // We require at least 1 step (maxCount >= 1)
-                    if (parsed < 1) parsed = 1;
-                    if (parsed > MAX_COUNT_LIMIT) parsed = MAX_COUNT_LIMIT;
+				// We require at least 1 step (maxCount >= 1)
+				if (parsed < 1) parsed = 1;
+				if (parsed > MAX_COUNT_LIMIT) parsed = MAX_COUNT_LIMIT;
 
-                    maxCount = parsed;
+				maxCount = parsed;
 
-                    // keep text box in sync if clamped
-                    std::string corrected = std::to_string(maxCount);
-                    if (corrected != inputText) {
-                        inputText = corrected;
-                    }
-                } catch (...) {
-                    maxCount = 1;
-                }
+				// keep text box in sync if clamped
+				std::string corrected = std::to_string(maxCount);
+				if (corrected != inputText) {
+					inputText = corrected;
+				}
             }
             previnputText = inputText;
         }
