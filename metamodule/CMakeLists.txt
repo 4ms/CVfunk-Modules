@@ -43,6 +43,7 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/Morta.cpp
     ${CVFUNK_SOURCE_DIR}/src/Node.cpp
     ${CVFUNK_SOURCE_DIR}/src/Nona.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Onion.cpp
     ${CVFUNK_SOURCE_DIR}/src/Ouros.cpp
     ${CVFUNK_SOURCE_DIR}/src/PentaSequencer.cpp
     ${CVFUNK_SOURCE_DIR}/src/Picus.cpp
