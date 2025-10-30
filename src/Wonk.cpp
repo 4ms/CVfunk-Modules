@@ -12,13 +12,11 @@
 #include "plugin.hpp"
 #include "rack.hpp"
 
-struct Wonk : Module {
-
-    static inline float linearInterpolate(float a, float b, float fraction) {
-        return a + fraction * (b - a);
-    }
-
-    static inline float lagrange4(
+//Branchless replacement for fmod
+inline __attribute__((always_inline)) float wrap01(float x) { return x - floorf(x); }
+inline __attribute__((always_inline)) float wrapPhaseDiff(float x) {  return x - roundf(x); }
+inline __attribute__((always_inline)) float linearInterpolate(float a, float b, float fraction) { return a + fraction * (b - a); }
+inline __attribute__((always_inline)) float lagrange4(
         float y0, float y1, float y2, float y3, float t
     ) {
         float a = (-t * (t - 1.0f) * (t - 2.0f)) / 6.0f;
@@ -28,9 +26,11 @@ struct Wonk : Module {
         return a * y0 + b * y1 + c * y2 + d * y3;
     }
 
+struct Wonk : Module {
+
     enum ParamId {
         RATE_ATT, RATE_KNOB,
-        WONK_ATT, WONK_KNOB, 
+        WONK_ATT, WONK_KNOB,
         POS_KNOB,
         NODES_ATT, NODES_KNOB,
         MOD_DEPTH_ATT, MOD_DEPTH,
@@ -61,7 +61,7 @@ struct Wonk : Module {
     dsp::SchmittTrigger clockTrigger, resetTrigger, resetButton;
     dsp::Timer syncTimer;
 
-    bool syncPoint = false; 
+    bool syncPoint = false;
     float syncInterval = 2.0f;
     float prevSyncInterval = 2.0f;
 
@@ -73,7 +73,7 @@ struct Wonk : Module {
     int processSkips = 100; // frequency of skipped updates
     int processCounter = 0; // Counter to track staggered processing
     bool prevcableConnected = false; //check if a poly cable was plugged into the output
-    
+
     float lfoPhase[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Current LFO phase for each channel
     float prevPhaseResetInput[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Previous envelope input, for peak detection
     float calculateTargetPhase(int channel, float nodePosition, float deltaTime, float place);
@@ -104,49 +104,49 @@ struct Wonk : Module {
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
         json_object_set_new(rootJ, "syncInterval", json_real(syncInterval));
-    
+
         // Save place array
         json_t* placeArrayJ = json_array();
         for (int i = 0; i < 6; i++) {
             json_array_append_new(placeArrayJ, json_real(place[i]));
         }
         json_object_set_new(rootJ, "place", placeArrayJ);
-    
+
         // Save lfoPhase array
         json_t* lfoPhaseArrayJ = json_array();
         for (int i = 0; i < 6; i++) {
             json_array_append_new(lfoPhaseArrayJ, json_real(lfoPhase[i]));
         }
         json_object_set_new(rootJ, "lfoPhase", lfoPhaseArrayJ);
-  
+
         json_object_set_new(rootJ, "unipolarMode", json_boolean(unipolarMode));
-    
+
         return rootJ;
     }
-    
-    void dataFromJson(json_t* rootJ) override {    
+
+    void dataFromJson(json_t* rootJ) override {
         json_t* siJ = json_object_get(rootJ, "syncInterval");
         if (siJ)
             syncInterval = (float)json_real_value(siJ);
-    
+
         // Load place array
         json_t* placeArrayJ = json_object_get(rootJ, "place");
         if (placeArrayJ && json_is_array(placeArrayJ)) {
             size_t i;
             json_t* val;
             json_array_foreach(placeArrayJ, i, val) {
-                if (i < 16)
+                if (i < 6)
                     place[i] = (float)json_real_value(val);
             }
         }
-    
+
         // Load lfoPhase array
         json_t* lfoPhaseArrayJ = json_object_get(rootJ, "lfoPhase");
         if (lfoPhaseArrayJ && json_is_array(lfoPhaseArrayJ)) {
             size_t i;
             json_t* val;
             json_array_foreach(lfoPhaseArrayJ, i, val) {
-                if (i < 16)
+                if (i < 6)
                     lfoPhase[i] = (float)json_real_value(val);
             }
         }
@@ -183,8 +183,8 @@ struct Wonk : Module {
         configOutput(_5_OUTPUT, "5");
         configOutput(_6_OUTPUT, "6");
         configOutput(POLY_OUTPUT, "Polyphonic");
-        
-        outputs[POLY_OUTPUT].setChannels(6);       
+
+        outputs[POLY_OUTPUT].setChannels(6);
     }
 
     void onReset(const ResetEvent& e) override {
@@ -197,17 +197,17 @@ struct Wonk : Module {
         for (int i=0; i<6; i++){
                 place[i] = 0.0f; //Reset place to zero
                 lfoPhase[i] = i/6.f; //Reset phase to computed node positions
-        }              
+        }
     }
 
     void process(const ProcessArgs& args) override {
-
+    
         float deltaTime = args.sampleTime;
         syncTimer.process(deltaTime);
-        
+    
         resetCondition = false; //remote reset token
         syncPoint = false; //internal reset-sync token
-
+    
         // Clock handling logic
         bool externalClockConnected = inputs[CLOCK_INPUT].isConnected();
         if (externalClockConnected ) {
@@ -222,7 +222,7 @@ struct Wonk : Module {
             }
     
             if (clockTrigger.process(SyncInputVoltage - 0.1f)) {
-                
+    
                 // Check for special control voltages first
                 if (abs(SyncInputVoltage - 10.69f) < 0.1f) {  //ON VOLTAGE for CVfunk Chain function
                     syncPoint = true;
@@ -237,99 +237,90 @@ struct Wonk : Module {
                     firstPulseReceived = false;
                     return; // Don't process as normal clock
                 }
-
+    
                 // Compute SYNC INTERVAL here
                 if (firstPulseReceived) {
                     prevSyncInterval = syncInterval;  //save interval before overwriting it
                     syncInterval = syncTimer.time;
                     syncTimer.reset();
-                    firstSync = false;                
+                    firstSync = false;
                 }
                 firstPulseReceived = true;
             }
         }
-        
+    
         freqHz = 1.0f/fmax(syncInterval, 0.0001f); //limit syncInterval to avoid div by zero.
-
+    
         // Resetting Logic
         bool resetConnected = inputs[RESET_INPUT].isConnected();
         if (resetConnected && resetTrigger.process(inputs[RESET_INPUT].getVoltage() - 0.1f)) syncPoint = true; //Sync on Reset Trigger
         if (resetButton.process(params[RESET_BUTTON].getValue())) syncPoint = true; //Sync on Reset Button Press
         if (resetCondition) syncPoint = true; //Reset on chain reset signal
-        
+    
         if (syncPoint) syncPulse.trigger(0.2f);
-        
         syncActive = syncPulse.process(args.sampleTime);
-
+    
         // Compute Modulation Depth
         modulationDepth = params[MOD_DEPTH].getValue();
         if (inputs[MOD_DEPTH_INPUT].isConnected()){
             modulationDepth = clamp (
                 inputs[MOD_DEPTH_INPUT].getVoltage() * params[MOD_DEPTH_ATT].getValue() * 0.5f + modulationDepth, -5.f, 5.f); //map 0-10V to 5V.
-        } 
-
+        }
+    
         processSkipper++;
         if (processSkipper>=processSkips){
-            // Track connection states of each output
             bool cableConnected = outputs[POLY_OUTPUT].isConnected();
-        
             if (cableConnected) {
                 outputs[POLY_OUTPUT].setChannels(6);
             }
-        
-            // Update previous connection states
             prevcableConnected = cableConnected;
-            
             processSkipper = 0;
         }
-
-        SINprocessCounter++;  //Skip some SINE computations to save CPU  
-        float rawRate = params[RATE_KNOB].getValue(); 
+    
+        SINprocessCounter++;
+    
+        // Rate
+        float rawRate = params[RATE_KNOB].getValue();
         if (inputs[RATE_INPUT].isConnected()) {
             rawRate = inputs[RATE_INPUT].getVoltage() * params[RATE_ATT].getValue() + rawRate;
         }
+    
         float rate = 1.0f;
-
-        // Compute the effective rate
-        if (rawRate >= 1.0f) {
-            // Positive values: Multiplier
-            rate = rawRate;
-        } else if (rawRate <= -1.0f) {
-            // Negative values: Divider
-            rate = 1.0f / std::abs(rawRate);
-        } else {
-            // Handle the -1.0 to 1.0 range (e.g., default to 1.0)
-            rate = 1.0f;
-        }
-
-        rate = rate * freqHz * 0.5f; //convert from multiple to rate in Hz
-
-        float nodePosition = params[NODES_KNOB].getValue();
-        if (inputs[NODES_INPUT].isConnected()){
-            nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
-        }
-        float modRate[6] = {rate, rate, rate, rate, rate, rate};
+        if (rawRate >= 1.0f) rate = rawRate;
+        else if (rawRate <= -1.0f) rate = 1.0f / std::abs(rawRate);
+        rate *= freqHz * 0.5f; // Hz
+    
+        // Wonky / Node position
         float wonky = params[WONK_KNOB].getValue();
         if (inputs[WONK_INPUT].isConnected()){
             wonky = clamp(inputs[WONK_INPUT].getVoltage()*params[WONK_ATT].getValue() / 10.f + wonky, 0.f, 1.f);
         }
-        int wonkPos = static_cast<int>( clamp( roundf(params[POS_KNOB].getValue() - 0.5f), 0.0f, 5.0f ) );
-
-        nodePosition = clamp(nodePosition + nodePosition * (wonky * wonkMod[wonkPos] / 25.0f), -3.0f, 3.0f);
-        deltaTime = args.sampleTime;
-        
-        nodePosition = nodePosition - nodePosition*(wonky*0.9); //when wonky==1 nodes =0.1, Narrowing nodes keeps wonk from going crazy
-            
+        const int wonkPos = static_cast<int>( clamp( roundf(params[POS_KNOB].getValue() - 0.5f), 0.0f, 5.0f ) );
+    
+        float nodePosition = params[NODES_KNOB].getValue();
+        if (inputs[NODES_INPUT].isConnected()){
+            nodePosition = nodePosition + inputs[NODES_INPUT].getVoltage() * params[NODES_ATT].getValue();
+        }
+    
+        // Cached scalars
+        const float nodePositionFactor = nodePosition - nodePosition * (wonky * 0.9f);
+        const float wonkyScale = wonky * 0.95f / 5.0f;
+        const float rateScaledDT = rate * deltaTime;
+        const float twoPi = 2.0f * M_PI;
+        const float wonkModScale = modulationDepth * 0.2f;
+        const bool polyConnected = outputs[POLY_OUTPUT].isConnected();
+        const bool unipolar = unipolarMode;
+        // -----------------------------------------------
+    
         for (int i = 0; i < 6; i++) {
-            int adjWonkPos = wonkPos+i;
-            if (adjWonkPos >= 6){adjWonkPos -= 6;}
-            if (adjWonkPos < 0){adjWonkPos += 6;}
-
-            modRate[i] = rate + rate * 0.95f * (wonky * wonkMod[adjWonkPos] / 5.0f);
-
+            int adjWonkPos = wonkPos + i;
+            if (adjWonkPos >= 6) adjWonkPos -= 6;
+            if (adjWonkPos < 0) adjWonkPos += 6;
+    
+            float modRate = rate + rate * wonkyScale * wonkMod[adjWonkPos];
             float basePhase = i / -6.0f;
             float targetPhase = basePhase;
-
+        
             if (nodePosition < -2.0f) {
                 // -3.0 <= nodePosition < -2.0: Bimodal behavior (reversed)
                 float trimodalPhase = (i % 3) / 3.0f; // Calculate trimodal phase negatively
@@ -368,13 +359,13 @@ struct Wonk : Module {
             targetPhase += place[i];
 
             targetPhase = wrap01(targetPhase + place[i]); //more efficient wrap logic wrap01 0...1  and wrapPhaseDiff -0.5...0.5
-            
+
             float phaseDiff = wrapPhaseDiff(targetPhase - lfoPhase[i]);
-            
+
             lfoPhase[i] = wrap01(lfoPhase[i] + phaseDiff * 0.2f);
-            lfoPhase[i] = wrap01(lfoPhase[i] + modRate[i] * deltaTime);
-            place[i]    = wrap01(place[i]    + modRate[i] * deltaTime);
-            
+            lfoPhase[i] = wrap01(lfoPhase[i] + modRate * deltaTime);
+            place[i]    = wrap01(place[i]    + modRate * deltaTime);
+
             if (SINprocessCounter > SkipProcesses) {
                 // Compute new sine, store in ring buffer
                 for (int i = 0; i < 6; ++i) {
@@ -387,40 +378,30 @@ struct Wonk : Module {
 
             float t = static_cast<float>(SINprocessCounter) / static_cast<float>(SkipProcesses);
 
-            // Recall History for Lagrange interpolation            
+            // Recall History for Lagrange interpolation
             float y0 = lfoHistory[i][(lfoHistPos + 0) % 4]; // Ring buffer of 4
             float y1 = lfoHistory[i][(lfoHistPos + 1) % 4];
             float y2 = lfoHistory[i][(lfoHistPos + 2) % 4];
             float y3 = lfoHistory[i][(lfoHistPos + 3) % 4];
-        
-            float interpolated = lagrange4(y0, y1, y2, y3, t); // Smooth interpolation 
-        
+
+            float interpolated = lagrange4(y0, y1, y2, y3, t); // Smooth interpolation
+
             wonkMod[i] = interpolated * (modulationDepth * 0.2f); // modDepth can be up to 5V, normalize to 1 here
 
             float outputVal = unipolarMode ? wonkMod[i] + modulationDepth : wonkMod[i];
-            
+
             if (outputs[POLY_OUTPUT].isConnected()) {
                 outputs[POLY_OUTPUT].setVoltage(outputVal, i);
             }
-            
+
             outputs[_1_OUTPUT + i].setVoltage(outputVal);
 
         }//LFO layers
-             
-        if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
-            
-    } 
 
-    // Wrap to [0, 1)
-    inline float wrap01(float x) {
-        return x - floorf(x);
+        if (SINprocessCounter > SkipProcesses) { SINprocessCounter = 0; }
+
     }
-    
-    // Wrap phase diff to [-0.5, 0.5)
-    inline float wrapPhaseDiff(float x) {
-        return x - roundf(x);
-    }    
-      
+
 };
 
 struct WonkWidget : ModuleWidget {
@@ -428,7 +409,7 @@ struct WonkWidget : ModuleWidget {
     struct WonkDisplay : TransparentWidget {
         Wonk* module = nullptr;
         int index;        // Index from 0 to 15 for each rectangle
-    
+
         void drawLayer(const DrawArgs& args, int layer) override {
             if (layer == 1) { // Self-illuminating layer
                 float fake[6] = {-4.f, 3.f, -1.f, 5.f, 2.f, 4.f};
@@ -439,7 +420,7 @@ struct WonkWidget : ModuleWidget {
                 if (module) {
                     value = unipolar ? module->wonkMod[index] + module->modulationDepth : module->wonkMod[index];
                 }
-        
+
                 NVGcolor color;
                 if (unipolar) {
                     color = nvgRGB(208, 140, 89); // gold
@@ -448,10 +429,10 @@ struct WonkWidget : ModuleWidget {
                         ? nvgRGBAf(1.0f, 0.4f, 0.0f, 1.0f)   // orange for positive
                         : nvgRGBAf(0.0f, 0.4f, 1.0f, 1.0f);  // blue for negative
                 }
-        
+
                 float rectWidth;
                 float xPos;
-        
+
                 if (unipolar) {
                     // Map 0–10V across full width
                     float widthScale = box.size.x / 10.f;
@@ -462,13 +443,13 @@ struct WonkWidget : ModuleWidget {
                     float centerX = box.size.x / 2.0f;
                     float widthScale = centerX / 5.0f;
                     rectWidth = std::fabs(value) * widthScale;
-        
+
                     if (value >= 0.0f)
                         xPos = centerX;            // rightwards
                     else
                         xPos = centerX - rectWidth; // leftwards
                 }
-        
+
                 // Draw the rectangle
                 nvgBeginPath(args.vg);
                 nvgRect(args.vg, xPos, 0.0f, rectWidth, box.size.y * 0.9f);
@@ -476,12 +457,12 @@ struct WonkWidget : ModuleWidget {
                 nvgFill(args.vg);
             }
         }
-   
+
     };
 
 
 
-    
+
     WonkWidget(Wonk* module) {
         setModule(module);
 
@@ -496,9 +477,9 @@ struct WonkWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 1 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.954, 14.562)), module, Wonk::CLOCK_INPUT));       
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.954, 14.562)), module, Wonk::CLOCK_INPUT));
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.954 + 12, 14.562)), module, Wonk::RESET_INPUT));
-                
+
         addParam(createParamCentered<TL1105>(mm2px(Vec(6.954+19, 14.562)), module, Wonk::RESET_BUTTON));
         addChild(createLightCentered<LargeLight<RedLight>>(mm2px(Vec(6.954+19, 14.562)), module, (Wonk::RESET_LIGHT)));
 
@@ -507,15 +488,15 @@ struct WonkWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(55.177, 14.562)), module, Wonk::RATE_KNOB));
 
         addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.954, 95.717)), module, Wonk::WONK_INPUT));
-        addParam(createParamCentered<Trimpot>(mm2px(Vec(15.821, 95.717)), module, Wonk::WONK_ATT));        
+        addParam(createParamCentered<Trimpot>(mm2px(Vec(15.821, 95.717)), module, Wonk::WONK_ATT));
         addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(30.48, 94.926)), module, Wonk::WONK_KNOB));
-        
+
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(48.512, 100.019)), module, Wonk::POS_KNOB));
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.954, 113.958)), module, Wonk::NODES_INPUT));        
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.954, 113.958)), module, Wonk::NODES_INPUT));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(15.821, 113.958)), module, Wonk::NODES_ATT));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(24.689, 113.958)), module, Wonk::NODES_KNOB));
 
-        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(37.443, 113.958)), module, Wonk::MOD_DEPTH_INPUT));        
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(37.443, 113.958)), module, Wonk::MOD_DEPTH_INPUT));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(46.31, 113.958)), module, Wonk::MOD_DEPTH_ATT));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(55.177, 113.958)), module, Wonk::MOD_DEPTH));
 
@@ -547,12 +528,12 @@ struct WonkWidget : ModuleWidget {
             display->index = i;
             addChild(display);
         }
-            
-    } 
+
+    }
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
-    
+
         Wonk* wonkModule = dynamic_cast<Wonk*>(module);
         assert(wonkModule);
 
@@ -570,16 +551,21 @@ struct WonkWidget : ModuleWidget {
                 MenuItem::step();
             }
         };
-        
+
         UnipolarItem* unipolarItem = new UnipolarItem();
         unipolarItem->text = "Unipolar mode (0-10V)";
         unipolarItem->module = wonkModule;
-        menu->addChild(unipolarItem);        
-        
-    } 
-    
+        menu->addChild(unipolarItem);
+
+    }
+
+#if defined(METAMODULE)
+    // For MM, use step(), because overriding draw() will allocate a module-sized pixel buffer
+    void step() override {
+#else
     void draw(const DrawArgs& args) override {
         ModuleWidget::draw(args);
+#endif
         Wonk* module = dynamic_cast<Wonk*>(this->module);
         if (!module) return;
 
@@ -588,13 +574,13 @@ struct WonkWidget : ModuleWidget {
         } else {
             module->lights[Wonk::RESET_LIGHT].setBrightness(0.f);
         }
-        
-        if (module->unipolarMode){ 
+
+        if (module->unipolarMode){
             module->paramQuantities[Wonk::MOD_DEPTH]->displayMultiplier = 2.f;
             } else {
             module->paramQuantities[Wonk::MOD_DEPTH]->displayMultiplier = 1.f;
-        }        
-    }   
+        }
+    }
 };
 
 Model* modelWonk = createModel<Wonk, WonkWidget>("Wonk");

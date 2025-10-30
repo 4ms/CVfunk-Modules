@@ -477,7 +477,8 @@ struct TunerWidget : ModuleWidget {
             for (size_t i = 0; i < 1024; i++) {
                 float x = (float)i / 1023.f * box.size.x;
                 float y = centerY - module->waveBuffer[buf_idx][i] * scale;
-                if (module->currentHz[0]<0.0f) y = centerY;
+                // FIX: Check the correct channel based on buf_idx
+                if (module->currentHz[buf_idx] < 0.0f) y = centerY;
                 if (i == 0)
                     nvgMoveTo(args.vg, x, y);
                 else
@@ -490,7 +491,6 @@ struct TunerWidget : ModuleWidget {
     
         }
     };
-
     DigitalDisplay* noteDisp = nullptr;
     DigitalDisplay* centsDisp = nullptr;
     DigitalDisplay* freqDisp = nullptr;

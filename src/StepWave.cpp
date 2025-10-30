@@ -369,6 +369,7 @@ struct StepWave : Module {
         configSwitch(RESET_BUTTON, 0.f, 1.f, 0.f, "Reset");
         configSwitch(LINK_BUTTON, 0.f, 1.f, 0.f, "Link", {"Off", "On"});
         configSwitch(TRACK_BUTTON, 0.f, 1.f, 0.f, "Track", {"Off", "On"});
+
     }
 
     void process(const ProcessArgs &args) override {
