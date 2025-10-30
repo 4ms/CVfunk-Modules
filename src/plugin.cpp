@@ -38,9 +38,7 @@ void init(Plugin* p) {
     p->addModel(modelJunkDNA);
     p->addModel(modelPicus);
     p->addModel(modelNode);
-#if !defined(METAMODULE)
     p->addModel(modelWeave);
-#endif
     p->addModel(modelWonk);
     p->addModel(modelHammer);
     p->addModel(modelHub);
