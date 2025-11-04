@@ -90,17 +90,20 @@ struct Picus : Module {
     bool resyncFlag[STAGES] = {false,false,false,false,false,false,false}; 
     int beatCount = 0;
     float beatInterval = 1.f;
-    float playMode = 0.f;
     bool endPulseAtStage = true;
     bool patternReset = false;
     bool resetCondition = false;
-    float lastPlayMode = 1.0f;
     bool blinkDON = false;
     bool blinkKA = false;
     bool blinkEND = false;
+    int subBeatCount = 0;
 
     int inputSkipper = 0;
     int inputSkipsTotal = 100; //only process button presses every 1/100 steps as it takes way too much CPU
+    float playMode = 0.f;
+    float lastPlayMode = 1.0f;
+    bool resetArmed = false;
+
 
     dsp::PulseGenerator DonPulse, KaPulse, EndPulse;
 
@@ -131,6 +134,9 @@ struct Picus : Module {
             json_array_append_new(divideJ, json_real(divide[i]));
         }
         json_object_set_new(rootJ, "divide", divideJ);
+
+        json_object_set_new(rootJ, "playMode", json_real(playMode));
+        json_object_set_new(rootJ, "lastPlayMode", json_real(lastPlayMode));
     
         return rootJ;
     }
@@ -186,6 +192,16 @@ struct Picus : Module {
                     divide[i] = json_number_value(val);
                 }
             }
+        }
+ 
+        json_t* playModeJ = json_object_get(rootJ, "playMode");
+        if (playModeJ && json_is_number(playModeJ)) {
+            playMode = json_number_value(playModeJ);
+        }
+    
+        json_t* lastPlayModeJ = json_object_get(rootJ, "lastPlayMode");
+        if (lastPlayModeJ && json_is_number(lastPlayModeJ)) {
+            lastPlayMode = json_number_value(lastPlayModeJ);
         }
     }
 
@@ -300,13 +316,42 @@ struct Picus : Module {
                     return; // Don't process as normal clock
                 }
                 
-                if (firstPulseReceived) {
+                // --- Clock pulse detected ---
+                if (resetArmed) {
+                    // --- first clock after a reset ---
+                    resetArmed = false;
+                    firstPulseReceived = true;
+                    firstSync = true;
+                    syncPoint = true;        // trigger immediately
+                    syncTimer.reset();
+                    beatTimer.reset();
+                    beatCount = 0;
+                    subBeatCount = 0;
+                
+                    // optional: produce the first beat now
+                    if (playMode > 0.f) {
+                        patternIndex = 0;  // always start from step 1
+                        if (patternState[patternIndex] == 0) DonPulse.trigger(0.001f);
+                        if (patternState[patternIndex] == 1) KaPulse.trigger(0.001f);
+                    }
+                
+                } else if (!firstPulseReceived) {
+                    // --- normal initial start ---
+                    firstPulseReceived = true;
+                    firstSync = true;
+                    syncPoint = true;
+                    syncTimer.reset();
+                    beatTimer.reset();
+                    beatCount = 0;
+                    subBeatCount = 0;
+                
+                } else {
+                    // --- all subsequent pulses ---
                     syncInterval = syncTimer.time;
                     syncTimer.reset();
                     syncPoint = true;
                     firstSync = false;
                 }
-                firstPulseReceived = true;
             }
         }
 
@@ -377,7 +422,7 @@ struct Picus : Module {
                 for (int i = 0; i < STAGES; i++) { 
                     if (currentStage >= STAGES) { //Stage Wrap-Around Point
                         currentStage = 0;
-                        if (!endPulseAtStage) { EndPulse.trigger(0.001f); blinkEND = true; }                                           
+                        if (!endPulseAtStage) { EndPulse.trigger(0.001f); blinkEND = true; }
                         if (playMode == 2.0) { //one-shot mode
                             paramQuantities[ON_SWITCH]->setDisplayValue(0.0f);
                             playMode = 0.f;
@@ -391,19 +436,33 @@ struct Picus : Module {
                 selectedStage = currentStage;
             }
         }
-
-        // Beat Computing
-        if (divide[currentStage]>0.f && multiply[currentStage]>0.f && (!firstSync) && playMode > 0.f){
-            if (syncPoint || resyncFlag[currentStage]){
+        
+        // Beat Computing (sub-beats within each stage)
+        if (divide[currentStage] > 0.f && multiply[currentStage] > 0.f && playMode > 0.f) {
+        
+            if ((syncPoint && beatCount == 0) || resyncFlag[currentStage]) {
                 resyncFlag[currentStage] = false;
-                beatInterval = (divide[currentStage]*syncInterval)/multiply[currentStage];
-            }
-            if (beatTimer.time >= beatInterval && playMode > 0.f && externalClockConnected){
+                // Total duration of this stage / number of sub-beats
+                beatInterval = (divide[currentStage] * syncInterval) / multiply[currentStage];
                 beatTimer.reset();
-                patternIndex++;
-                if (patternIndex >= patternStages) patternIndex = 0;
-                if (patternState[patternIndex]==0) DonPulse.trigger(0.001f);
-                if (patternState[patternIndex]==1) KaPulse.trigger(0.001f);
+                subBeatCount = 0;
+            }
+        
+            if (beatTimer.time >= beatInterval && playMode > 0.f && externalClockConnected) {
+                beatTimer.reset();
+                subBeatCount++;
+        
+                // Only produce sub-beats for intermediate positions — the last sub-beat is skipped so the stage advance triggers
+                if (subBeatCount < multiply[currentStage]) {
+                    patternIndex++;
+                    if (patternIndex >= patternStages)
+                        patternIndex = 0;
+        
+                    if (patternState[patternIndex] == 0)
+                        DonPulse.trigger(0.001f);
+                    if (patternState[patternIndex] == 1)
+                        KaPulse.trigger(0.001f);
+                }
             }
         }
 
@@ -422,6 +481,9 @@ struct Picus : Module {
         if (divide[currentStage]>0.f && multiply[currentStage]>0.f && playMode > 0.f ){
             outputs[DON_OUTPUT].setVoltage(DonActive ? 10.f : 0.f);
             outputs[KA_OUTPUT].setVoltage(KaActive ? 10.f : 0.f);
+        } else {
+            outputs[DON_OUTPUT].setVoltage(0.f);
+            outputs[KA_OUTPUT].setVoltage(0.f);        
         }
         outputs[END_OUTPUT].setVoltage(EndActive ? 10.f : 0.f);
 
@@ -430,16 +492,26 @@ struct Picus : Module {
         if (inputs[RESET_INPUT].isConnected()){
             if(resetTrigger.process(inputs[RESET_INPUT].getVoltage()-0.1f)) reset = true;
         }
-        if (reset || resetCondition){
+
+        if (reset || resetCondition) {
             currentStage = 0;
             selectedStage = 0;
             beatTimer.reset();
+            patternIndex = 0; 
+        
+            clockTrigger.reset();
+            syncTimer.reset();
+            syncPoint = false;
+        
             firstPulseReceived = false;
-            patternIndex = 0;
-            EndPulse.trigger(0.001f);
-
-            if (lastPlayMode == 2.0f){   
-                if (playMode>0.f){
+            firstSync = false;
+        
+            subBeatCount = 0;
+            beatCount = 0;
+            resetArmed = true;   
+        
+            if (lastPlayMode == 2.0f) {   
+                if (playMode > 0.f) {
                     lastPlayMode = playMode;
                     paramQuantities[ON_SWITCH]->setDisplayValue(playMode);
                 } else {
@@ -629,8 +701,7 @@ struct PicusWidget : ModuleWidget {
 
     }
 
-    void draw(const DrawArgs& args) override {
-        ModuleWidget::draw(args);
+    void step() override {
         Picus* module = dynamic_cast<Picus*>(this->module);
         if (!module) return;
 
@@ -725,7 +796,8 @@ struct PicusWidget : ModuleWidget {
         } else {
             float dim = module->lights[Picus::END_LIGHT].getBrightness();
             module->lights[Picus::END_LIGHT].setBrightness( dim * .8f);
-        }          
+        } 
+        ModuleWidget::step();         
     }  
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

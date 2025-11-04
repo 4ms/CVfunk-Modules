@@ -576,8 +576,6 @@ struct HexModWidget : ModuleWidget {
     }
 
     void step() override {
-		ModuleWidget::step();
-
         HexMod* module = dynamic_cast<HexMod*>(this->module);
         if (!module) return;
         
@@ -608,8 +606,9 @@ struct HexModWidget : ModuleWidget {
             module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 0.05f;    
         } else {
             module->paramQuantities[HexMod::RATE_KNOB]->displayMultiplier = 1.0f;        
-        }            
-    }                             
+        }  
+		ModuleWidget::step();
+    }   
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
