@@ -48,8 +48,8 @@ struct Ranges : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(TOP_PARAM, -10.f, 10.f, 0.f, "Top");
         configParam(BOTTOM_PARAM, -10.f, 10.f, 0.f, "Bottom");
-        configParam(TOP_ATT_PARAM, -1.f, 1.f, 0.f, "Top Attenuation");
-        configParam(BOTTOM_ATT_PARAM, -1.f, 1.f, 0.f, "Botom Attenuation");
+        configParam(TOP_ATT_PARAM, -1.f, 1.f, 0.f, "Top Att.");
+        configParam(BOTTOM_ATT_PARAM, -1.f, 1.f, 0.f, "Botom Att.");
         configParam(DIVISIONS_PARAM, 0.f, 11.f, 1.f, "Divisions");
 
         configInput(TOP_INPUT, "Top");

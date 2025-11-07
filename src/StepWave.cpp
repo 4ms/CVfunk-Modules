@@ -286,14 +286,14 @@ struct StepWave : Module {
     StepWave() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-        configParam(STEP_1_VAL, -5.f, 5.f, 0.0f, "Stage 1 Value");
-        configParam(STEP_2_VAL, -5.f, 5.f, 0.0f, "Stage 2 Value");
-        configParam(STEP_3_VAL, -5.f, 5.f, 0.0f, "Stage 3 Value");
-        configParam(STEP_4_VAL, -5.f, 5.f, 0.0f, "Stage 4 Value");
-        configParam(STEP_5_VAL, -5.f, 5.f, 0.0f, "Stage 5 Value");
-        configParam(STEP_6_VAL, -5.f, 5.f, 0.0f, "Stage 6 Value");
-        configParam(STEP_7_VAL, -5.f, 5.f, 0.0f, "Stage 7 Value");
-        configParam(STEP_8_VAL, -5.f, 5.f, 0.0f, "Stage 8 Value");
+        configParam(STEP_1_VAL, -5.f, 5.f, 0.0f, "Stage 1 Val.");
+        configParam(STEP_2_VAL, -5.f, 5.f, 0.0f, "Stage 2 Val.");
+        configParam(STEP_3_VAL, -5.f, 5.f, 0.0f, "Stage 3 Val.");
+        configParam(STEP_4_VAL, -5.f, 5.f, 0.0f, "Stage 4 Val.");
+        configParam(STEP_5_VAL, -5.f, 5.f, 0.0f, "Stage 5 Val.");
+        configParam(STEP_6_VAL, -5.f, 5.f, 0.0f, "Stage 6 Val.");
+        configParam(STEP_7_VAL, -5.f, 5.f, 0.0f, "Stage 7 Val.");
+        configParam(STEP_8_VAL, -5.f, 5.f, 0.0f, "Stage 8 Val.");
 
         configParam(STEP_1_BEATS, 0.f, 10.f, 1.0f, "Stage 1 Beats")->snapEnabled=true;
         configParam(STEP_2_BEATS, 0.f, 10.f, 1.0f, "Stage 2 Beats")->snapEnabled=true;
@@ -313,37 +313,43 @@ struct StepWave : Module {
         configParam(STEP_7_SHAPE, 1.f, 12.f, 1.0f, "Stage 7 Shape");
         configParam(STEP_8_SHAPE, 1.f, 12.f, 1.0f, "Stage 8 Shape");
 
-        configParam(STEP_1_2_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 1-2");
-        configParam(STEP_2_3_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 2-3");
-        configParam(STEP_3_4_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 3-4");
-        configParam(STEP_4_5_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 4-5");
-        configParam(STEP_5_6_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 5-6");
-        configParam(STEP_6_7_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 6-7");
-        configParam(STEP_7_8_DISPLACE, -5.f, 5.f, 0.0f, "Rhythmic Displacement 7-8");
+        configParam(STEP_1_2_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 1-2");
+        configParam(STEP_2_3_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 2-3");
+        configParam(STEP_3_4_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 3-4");
+        configParam(STEP_4_5_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 4-5");
+        configParam(STEP_5_6_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 5-6");
+        configParam(STEP_6_7_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 6-7");
+        configParam(STEP_7_8_DISPLACE, -5.f, 5.f, 0.0f, "Rhy. Displace. 7-8");
 
         configParam(SLEW_PARAM, 0.f, 1.f, 0.0f, "Slew");
 
         configInput(CLOCK_INPUT, "Clock");
-        configInput(STEP_1_IN_VAL, "Stage 1 Value");
-        configInput(STEP_2_IN_VAL, "Stage 2 Value");
-        configInput(STEP_3_IN_VAL, "Stage 3 Value");
-        configInput(STEP_4_IN_VAL, "Stage 4 Value");
-        configInput(STEP_5_IN_VAL, "Stage 5 Value");
-        configInput(STEP_6_IN_VAL, "Stage 6 Value");
-        configInput(STEP_7_IN_VAL, "Stage 7 Value");
-        configInput(STEP_8_IN_VAL, "Stage 8 Value");
-        configInput(STEP_1_2_DISPLACE_IN, "Rhythmic Displacement 1-2");
-        configInput(STEP_2_3_DISPLACE_IN, "Rhythmic Displacement 2-3");
-        configInput(STEP_3_4_DISPLACE_IN, "Rhythmic Displacement 3-4");
-        configInput(STEP_4_5_DISPLACE_IN, "Rhythmic Displacement 4-5");
-        configInput(STEP_5_6_DISPLACE_IN, "Rhythmic Displacement 5-6");
-        configInput(STEP_6_7_DISPLACE_IN, "Rhythmic Displacement 6-7");
-        configInput(STEP_7_8_DISPLACE_IN, "Rhythmic Displacement 7-8");
+        configInput(STEP_1_IN_VAL, "Stage 1 Val.");
+        configInput(STEP_2_IN_VAL, "Stage 2 Val.");
+        configInput(STEP_3_IN_VAL, "Stage 3 Val.");
+        configInput(STEP_4_IN_VAL, "Stage 4 Val.");
+        configInput(STEP_5_IN_VAL, "Stage 5 Val.");
+        configInput(STEP_6_IN_VAL, "Stage 6 Val.");
+        configInput(STEP_7_IN_VAL, "Stage 7 Val.");
+        configInput(STEP_8_IN_VAL, "Stage 8 Val.");
+        configInput(STEP_1_2_DISPLACE_IN, "Rhy. Displace. 1-2");
+        configInput(STEP_2_3_DISPLACE_IN, "Rhy. Displace. 2-3");
+        configInput(STEP_3_4_DISPLACE_IN, "Rhy. Displace. 3-4");
+        configInput(STEP_4_5_DISPLACE_IN, "Rhy. Displace. 4-5");
+        configInput(STEP_5_6_DISPLACE_IN, "Rhy. Displace. 5-6");
+        configInput(STEP_6_7_DISPLACE_IN, "Rhy. Displace. 6-7");
+        configInput(STEP_7_8_DISPLACE_IN, "Rhy. Displace. 7-8");
         configInput(SLEW_INPUT, "Slew CV");
-        configInput(ON_OFF_INPUT, "ON/OFF");
+        configInput(ON_OFF_INPUT, "On/Off");
         configInput(RESET_INPUT, "Reset");
+        
+#ifdef METAMODULE
+        configInput(LINK_INPUT, "Link");
+        configInput(TRACK_INPUT, "Track");
+#else
         configInput(LINK_INPUT, "Link Beats to Step");
         configInput(TRACK_INPUT, "Track Stage Value CV");
+#endif       
  
         configOutput(CV_OUTPUT, "Sequencer CV");
         configOutput(GATE_OUTPUT, "Sequencer Gate");

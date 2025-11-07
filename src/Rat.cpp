@@ -119,11 +119,11 @@ struct Rat : Module {
     Rat() {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(RATIO_PARAM, -16.0f, 16.0f, 1.0f, "Ratio");
-        configParam(RATIO_ATT_PARAM, -1.0f, 1.0f, 1.0f, "Ratio Attenuverter");
+        configParam(RATIO_ATT_PARAM, -1.0f, 1.0f, 1.0f, "Ratio Att.");
         configInput(OSCI_INPUT, "Osc I V/Oct");
         configInput(RATIO_INPUT, "Ratio");
         configOutput(OSCII_OUTPUT, "Osc II V/Oct");
-        configParam(LOCK_BUTTON, 0.0, 1.0, 0.0, "Lock on Ratio" );
+        configParam(LOCK_BUTTON, 0.0, 1.0, 0.0, "Lock-on Ratio" );
      }
 
     void process(const ProcessArgs& args) override {

@@ -180,38 +180,38 @@ struct Ouros : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
         // Initialize knob parameters with a reasonable range and default values
-        configParam(RATE_KNOB, -4.0f, 4.0f, 0.0f, "V/Oct offset"); // 
-        configParam(NODE_KNOB, 0.0f, 5.0f, 0.0f, "Node Distribution"); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal, 4: Unison, 5:Hexagonal
-        configParam(POSITION_KNOB, -360.0f, 360.0f, 0.0f, "Feedback Position"); // 
+        configParam(RATE_KNOB, -4.0f, 4.0f, 0.0f, "V/Oct Offset"); // 
+        configParam(NODE_KNOB, 0.0f, 5.0f, 0.0f, "Node Dist."); // 0: Hexagonal, 1: Unison, 2: Bimodal, 3: Trimodal, 4: Unison, 5:Hexagonal
+        configParam(POSITION_KNOB, -360.0f, 360.0f, 0.0f, "Feedback Pos."); // 
 
-        configParam(ROTATE_KNOB, -360.0f, 360.0f, 0.0f, "Phase Rotation"); // 
-        configParam(SPREAD_KNOB, -360.0f, 360.0f, 0.0f, "Stereo Phase Separation"); // 
+        configParam(ROTATE_KNOB, -360.0f, 360.0f, 0.0f, "Phase Rot."); // 
+        configParam(SPREAD_KNOB, -360.0f, 360.0f, 0.0f, "Stereo Phase Sep."); // 
         configParam(FEEDBACK_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Amount"); // 
-        configParam(MULTIPLY_KNOB, 1.0f, 10.0f, 1.0f, "Multiply Feedback Osc"); // 
+        configParam(MULTIPLY_KNOB, 1.0f, 10.0f, 1.0f, "Multiply Feedback Osc."); // 
 
-        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Attenuverter"); // 
-        configParam(ROTATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rotate Attenuverter"); // 
-        configParam(SPREAD_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Spread Attenuverter"); // 
-        configParam(FEEDBACK_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Attenuverter"); // 
-        configParam(POSITION_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Position Attenuverter"); // 
-        configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Attenuverter"); // 
+        configParam(NODE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Node Att."); // 
+        configParam(ROTATE_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Rotate Att."); // 
+        configParam(SPREAD_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Spread Att."); // 
+        configParam(FEEDBACK_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Att."); // 
+        configParam(POSITION_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Feedback Pos. Att."); // 
+        configParam(MULTIPLY_ATT_KNOB, -1.0f, 1.0f, 0.0f, "Multiply Att."); // 
 
-        configParam(FM_ATT_KNOB, -1.0f, 1.0f, 0.0f, "FM Attenuverter"); // 
+        configParam(FM_ATT_KNOB, -1.0f, 1.0f, 0.0f, "FM Att."); // 
         configInput(HARD_SYNC_INPUT, "Sync");
         configParam(RESET_BUTTON, 0.0, 1.0, 0.0, "Reset" );
 
         configInput(ROTATE_INPUT, "Rotate");
-        configInput(SPREAD_INPUT, "Phase Spread");
+        configInput(SPREAD_INPUT, "Spread");
         configInput(FEEDBACK_INPUT, "Feedback");
         configInput(FM_INPUT, "FM");
 
         configInput(RATE_INPUT, "V/Oct");
-        configInput(NODE_INPUT, "Node Distribution");
-        configInput(POSITION_INPUT, "Feedback Position");
+        configInput(NODE_INPUT, "Node Dist.");
+        configInput(POSITION_INPUT, "Feedback Pos.");
         configInput(MULTIPLY_INPUT, "Multiply");
 
-        configOutput(L_OUTPUT, "Orange Oscillator (L)" );
-        configOutput(R_OUTPUT, "Blue Oscillator (R)" );
+        configOutput(L_OUTPUT, "Orange - L" );
+        configOutput(R_OUTPUT, "Blue - R" );
 
      }
 

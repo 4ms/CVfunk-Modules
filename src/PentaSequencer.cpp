@@ -130,14 +130,14 @@ struct PentaSequencer : Module {
         configInput(SHIFT_INPUT, "Shift");
         configInput(DIR_INPUT, "Dir");
         configInput(RESET_INPUT, "Reset"); 
-        configInput(SLEW_INPUT, "Slew"); 
+        configInput(SLEW_INPUT, "Slew CV"); 
 
         configOutput(A_OUTPUT, "A");
         configOutput(B_OUTPUT, "B");
         configOutput(C_OUTPUT, "C");
         configOutput(D_OUTPUT, "D");
         configOutput(E_OUTPUT, "E");
-        configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trigger" );
+        configParam(MANUAL_TRIGGER_PARAM, 0.0, 1.0, 0.0, "Manual Trig." );
         configParam(MANUAL_RESET_PARAM, 0.0, 1.0, 0.0, "Manual Reset" );
     }
 

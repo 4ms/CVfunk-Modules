@@ -77,16 +77,20 @@ struct Steps : Module {
         configParam(BIAS_PARAM, -5.0f, 5.0f, 1.0f, "Bias");
         configParam(RANGE_PARAM, 0.0f, 10.0f, 3.0f, "Range");
         configParam(STEP_PARAM, -1.0f, 1.0f, 0.41666666f, "Step Size");
-        configParam(BIAS_ATT, -1.0f, 1.f, 1.0f, "Bias Attenuvertor");
-        configParam(RANGE_ATT, -1.0f, 1.0f, 1.0f, "Range Attenuvertor");
-        configParam(STEP_ATT, -1.0f, 1.0f, 1.0f, "Step Size Attenuvertor");
-        configParam(COMPARATOR_ATT, -1.0f, 1.0f, 1.0f, "Comparator Input Attenuvertor");
+        configParam(BIAS_ATT, -1.0f, 1.f, 1.0f, "Bias Att.");
+        configParam(RANGE_ATT, -1.0f, 1.0f, 1.0f, "Range Att.");
+        configParam(STEP_ATT, -1.0f, 1.0f, 1.0f, "Step Size Att.");
+        configParam(COMPARATOR_ATT, -1.0f, 1.0f, 1.0f, "Comp. Input Att.");
 
-        configInput(COMPARATOR_INPUT, "Comparator (Input breaks normal)");
-        configInput(BIAS_INPUT, "Bias");
-        configInput(RANGE_INPUT, "Range");
+#ifdef METAMODULE
+        configInput(COMPARATOR_INPUT, "Comparator");
+#else
+        configInput(COMPARATOR_INPUT, "Comparator In (Input breaks normal)");
+#endif
+        configInput(BIAS_INPUT, "Bias CV");
+        configInput(RANGE_INPUT, "Range CV");
         configInput(INVERT_INPUT, "Invert Gate");
-        configInput(STEP_INPUT, "Step Size");
+        configInput(STEP_INPUT, "Step Size CV");
         configInput(TRIGGER_INPUT, "Trigger");
         configInput(RESET_INPUT, "Reset");
         configOutput(COMPARATOR_UP_OUTPUT, "Comparator Above");
