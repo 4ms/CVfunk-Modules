@@ -81,7 +81,11 @@ struct FlowerPatch : Module {
 
     static constexpr size_t BUFFER_SIZE = 4096;
 
+#ifdef METAMODULE
+    static constexpr int MAX_HISTORY_FRAMES = 20; // Number of frames to store
+#else
     static constexpr int MAX_HISTORY_FRAMES = 100; // Number of frames to store
+#endif
 
     // Wave buffer for visualization
     float waveBuffer[BUFFER_SIZE] = {0.0f}; // To store the waveform shape
@@ -598,12 +602,14 @@ struct FlowerDisplay : TransparentWidget {
                     nvgScissor(args.vg, padding, padding, totalWidth, totalHeight);
                 
                     // Draw previous frames with fading
+					float opacity = fillKnob;
                     for (int i = 0; i < maxHistoryFrames; i++) { //also avoids div/zero if maxHistoryFrames is zero
                         int frameIndex = (module->currentFrame - i + maxHistoryFrames) % maxHistoryFrames;
-                        float opacity = powf(fadeFactor, i) * fillKnob;
+                        // float opacity = powf(fadeFactor, i) * fillKnob;
                 
                         if (opacity < 0.02f) continue;
-                
+               			opacity *= fadeFactor;
+
                         float drift = (i / static_cast<float>(maxHistoryFrames)) * maxDrift;
                         float scale = 1.0f + (i / static_cast<float>(maxHistoryFrames));
              
@@ -628,8 +634,8 @@ struct FlowerDisplay : TransparentWidget {
                             float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / fmax(module->maxVal, 0.15f)));
                             radius *= scale;
                 
-                            float posX = centerX + (radius + drift) * cos(angle);
-                            float posY = centerY + (radius + drift) * sin(angle);
+                            float posX = centerX + (radius + drift) * cosf(angle);
+                            float posY = centerY + (radius + drift) * sinf(angle);
                 
                             if (isFirstSegment) {
                                 nvgMoveTo(args.vg, posX, posY);
@@ -754,7 +760,7 @@ struct FlowerPatchWidget : ModuleWidget {
 
         FlowerDisplay* display = new FlowerDisplay();
         display->box.pos = Vec(5, 25);
-        display->box.size = Vec(box.size.x, 300);
+        display->box.size = Vec(/*475*/ 960.f/400.f * 300, 300);
         display->module = module;
         addChild(display);
     }
