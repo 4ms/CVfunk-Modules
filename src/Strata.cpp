@@ -685,9 +685,9 @@ struct Strata : Module {
     
         // === BEATS DOWN BUTTONS ===
         for (int i = 0; i < 8; i++)
-            configButton(STAGE_1_BEATS_DOWN + i, string::f("Stage %d Beats –", i + 1));
-        configButton(SEMI_BEATS_DOWN, "Semitone Beats –");
-        configButton(OCT_BEATS_DOWN,  "Octave Beats –");
+            configButton(STAGE_1_BEATS_DOWN + i, string::f("Stage %d Beats -", i + 1));
+        configButton(SEMI_BEATS_DOWN, "Semitone Beats -");
+        configButton(OCT_BEATS_DOWN,  "Octave Beats -");
     
         // === STEPS UP BUTTONS ===
         for (int i = 0; i < 8; i++)
@@ -697,9 +697,9 @@ struct Strata : Module {
     
         // === STEPS DOWN BUTTONS ===
         for (int i = 0; i < 8; i++)
-            configButton(STAGE_1_STEPS_DOWN + i, string::f("Stage %d Steps –", i + 1));
-        configButton(SEMI_STEPS_DOWN, "Semitone Steps –");
-        configButton(OCT_STEPS_DOWN,  "Octave Steps –");
+            configButton(STAGE_1_STEPS_DOWN + i, string::f("Stage %d Steps -", i + 1));
+        configButton(SEMI_STEPS_DOWN, "Semitone Steps -");
+        configButton(OCT_STEPS_DOWN,  "Octave Steps -");
     
         // === PATTERN SELECT BUTTONS (1–24) ===
         for (int i = 0; i < 24; i++) {
