@@ -154,17 +154,22 @@ struct PressedDuck : Module {
     dsp::SchmittTrigger muteButtonInput[7];
 
     // For mute transition
+    float transitionTime = 10.f; //transition time in ms
     float transitionSamples = 100.f; // Number of samples to complete the transition, updated in config
     float fadeLevel[7] = {1.0f};
     int transitionCount[7] = {0};  // Array to track transition progress for each channel
 
     bool mutedSideDucks = false;
+    bool muteCVToggle = true;
 
     alignas(std::atomic<bool>) std::atomic<bool> isShifted[6]; // For shift modified detection on the mute buttons
 
     // Serialization method to save module state
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
+
+        // Save the state of muteCVToggle as a boolean
+        json_object_set_new(rootJ, "muteCVToggle", json_boolean(muteCVToggle));
 
         // Save the state of applyFilters as a boolean
         json_object_set_new(rootJ, "applyFilters", json_boolean(applyFilters));
@@ -174,6 +179,10 @@ struct PressedDuck : Module {
 
         // Save the state of isSupersamplingEnabled as a boolean
         json_object_set_new(rootJ, "isSupersamplingEnabled", json_boolean(isSupersamplingEnabled));
+
+        // Save transitionTime
+        json_object_set_new(rootJ, "transitionTime", json_real(transitionTime));
+        json_object_set_new(rootJ, "transitionSamples", json_real(transitionSamples));
 
         // Save the muteLatch and muteState arrays
         json_t* muteLatchJ = json_array();
@@ -199,6 +208,13 @@ struct PressedDuck : Module {
 
     // Deserialization method to load module state
     void dataFromJson(json_t* rootJ) override {
+
+        // Load the state of muteCVToggle
+        json_t* muteCVToggleJ = json_object_get(rootJ, "muteCVToggle");
+        if (muteCVToggleJ) {
+            muteCVToggle = json_is_true(muteCVToggleJ);
+        }
+
         // Load the state of applyFilters
         json_t* applyFiltersJ = json_object_get(rootJ, "applyFilters");
         if (applyFiltersJ) {
@@ -215,6 +231,16 @@ struct PressedDuck : Module {
         json_t* isSupersamplingEnabledJ = json_object_get(rootJ, "isSupersamplingEnabled");
         if (isSupersamplingEnabledJ) {
             isSupersamplingEnabled = json_is_true(isSupersamplingEnabledJ);
+        }
+
+        // Load transitionTime
+        json_t* transitionTimeJ = json_object_get(rootJ, "transitionTime");
+        if (transitionTimeJ) {
+            transitionTime = json_real_value(transitionTimeJ);
+        }
+        json_t* transitionSamplesJ = json_object_get(rootJ, "transitionSamples");
+        if (transitionSamplesJ) {
+            transitionSamples = json_real_value(transitionSamplesJ);
         }
 
         // Load muteLatch and muteState arrays
@@ -306,6 +332,41 @@ struct PressedDuck : Module {
     float lastHPOutputR = 0.0f;
     float lastLPOutputL = 0.0f;
     float lastLPOutputR = 0.0f;
+
+    // UI CACHING: Only update knobs/buttons every N cycles
+    const int UI_UPDATE_DIVIDER = 100;
+    int uiUpdateCounter = 0;
+    
+    // Cached UI values
+    float cachedVolume[16] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 
+                               1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    float cachedPan[16] = {0.0f};
+    float cachedSidechainVolume = 0.6f;
+    float cachedDuck = 0.7f;
+    float cachedDuckAtt = 0.0f;
+    float cachedPress = 0.0f;
+    float cachedPressAtt = 0.0f;
+    float cachedFeedback = 0.0f;
+    float cachedFeedbackAtt = 0.0f;
+    float cachedMasterVol = 1.0f;
+    float cachedMasterVolAtt = 0.0f;
+    bool updateUI = true;
+  
+	int audioChannels[6] = {0}; // Number of polyphonic channels for AUDIO inputs
+	int lChannels[6] = {0}; 
+	int rChannels[6] = {0};
+	int vcaChannels[6] = {0}; // Number of polyphonic channels for VCA CV inputs
+	int panChannels[6] = {0};   // Number of polyphonic channels for PAN CV inputs
+	int muteChannels[6] = {0};  // Number of polyphonic channels for MUTE inputs
+
+	// Arrays to store the current input signals and connectivity status
+	int activeAudio[6] = {-1, -1, -1, -1, -1, -1};        // Stores the number of the previous active channel for the AUDIO inputs
+	int activeVcaChannel[6] = {-1, -1, -1, -1, -1, -1}; // Stores the number of the previous active channel for the VCA CV
+	int activePanChannel[6] = {-1, -1, -1, -1, -1, -1};   // Stores the number of the previous active channel for the PAN CV
+	int activeMuteChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the MUTE
+
+    
+    float sampleRate = 48000; //default 48000, update in config
 
     // Declare high-pass filter
     SecondOrderHPF hpfL, hpfR;
@@ -416,13 +477,17 @@ struct PressedDuck : Module {
         for (int i = 0; i < 6; ++i) {
             isShifted[i].store(false);
         }
-
-        transitionSamples = 0.01 * APP->engine->getSampleRate(); // 10 ms * sample rate
+        sampleRate = APP->engine->getSampleRate();
+        transitionSamples = transitionTime * 0.001f * sampleRate;
+        hpfL.setCutoffFrequency(sampleRate, 30.0f);
+        hpfR.setCutoffFrequency(sampleRate, 30.0f);
      }
 
     void onSampleRateChange() override {
-         float sampleRate = APP->engine->getSampleRate();
-         transitionSamples = 0.01 * sampleRate; // 10 ms * sample rate
+         sampleRate = APP->engine->getSampleRate();
+         transitionSamples = transitionTime * 0.001f * sampleRate;
+         hpfL.setCutoffFrequency(sampleRate, 30.0f);
+         hpfR.setCutoffFrequency(sampleRate, 30.0f);
     }
 
     void onReset(const ResetEvent& e) override {
@@ -437,18 +502,30 @@ struct PressedDuck : Module {
     }
 
     void process(const ProcessArgs& args) override {
+		updateUI = (uiUpdateCounter == 0);
+		if (updateUI) {
+			for (int i = 0; i < 6; i++) {
+				cachedVolume[i] = params[VOLUME1_PARAM + i].getValue();
+				cachedPan[i] = params[PAN1_PARAM + i].getValue();
+			}
+			cachedSidechainVolume = params[SIDECHAIN_VOLUME_PARAM].getValue();
+			cachedDuck = params[DUCK_PARAM].getValue();
+			cachedDuckAtt = params[DUCK_ATT].getValue();
+			cachedPress = params[PRESS_PARAM].getValue();
+			cachedPressAtt = params[PRESS_ATT].getValue();
+			cachedFeedback = params[FEEDBACK_PARAM].getValue();
+			cachedFeedbackAtt = params[FEEDBACK_ATT].getValue();
+			cachedMasterVol = params[MASTER_VOL].getValue();
+			cachedMasterVolAtt = params[MASTER_VOL_ATT].getValue();
+			transitionSamples = transitionTime * 0.001f * sampleRate;
+		}
+		uiUpdateCounter = (uiUpdateCounter + 1) % UI_UPDATE_DIVIDER;
+
         float mixL = 0.0f;
         float mixR = 0.0f;
-        float sampleRate = args.sampleRate;
-
-        // Setup filters
-        hpfL.setCutoffFrequency(args.sampleRate, 30.0f); // Set cutoff frequency
-        hpfR.setCutoffFrequency(args.sampleRate, 30.0f);
 
         // Calculate scale factor based on the current sample rate
         float scaleFactor = sampleRate / 96000.0f; // Reference sample rate (96 kHz)
-
-        // Adjust alpha and decayRate based on sample rate
         alpha = 0.01f / scaleFactor;  // Smoothing factor for envelope
         float decayRate = pow(0.999f, scaleFactor);  // Decay rate adjusted for sample rate
 
@@ -456,101 +533,135 @@ struct PressedDuck : Module {
         float compressionAmountR = 0.0f;
         float inputCount = 0.0f;
 
-        // Check if the channel has polyphonic input
-        int audioChannels[6] = {0}; // Number of polyphonic channels for AUDIO inputs
-        int lChannels[6] = {0}; int rChannels[6] = {0};
-        int vcaChannels[6] = {0}; // Number of polyphonic channels for VCA CV inputs
-        int panChannels[6] = {0};   // Number of polyphonic channels for PAN CV inputs
-        int muteChannels[6] = {0};  // Number of polyphonic channels for MUTE inputs
+		// OPTIMIZATION: First pass - quickly identify which channels need processing
+		bool channelNeedsProcessing[6] = {false};
+		int firstConnectedChannel = -1;
+		
+		for (int i = 0; i < 6; i++) {
+			bool hasL = inputs[AUDIO_1L_INPUT + 2 * i].isConnected();
+			bool hasR = inputs[AUDIO_1R_INPUT + 2 * i].isConnected();
+			bool hasVCA = inputs[VCA_CV1_INPUT + i].isConnected();
+			bool hasPan = inputs[PAN_CV1_INPUT + i].isConnected();
+			bool hasMute = inputs[MUTE_1_INPUT + i].isConnected();
+			
+			if (hasL || hasR || hasVCA || hasPan || hasMute) {
+				channelNeedsProcessing[i] = true;
+				if (firstConnectedChannel == -1) firstConnectedChannel = i;
+			}
+		}
 
-        // Arrays to store the current input signals and connectivity status
-        int activeAudio[6] = {-1, -1, -1, -1, -1, -1};        // Stores the number of the previous active channel for the AUDIO inputs
-        int activeVcaChannel[6] = {-1, -1, -1, -1, -1, -1}; // Stores the number of the previous active channel for the VCA CV
-        int activePanChannel[6] = {-1, -1, -1, -1, -1, -1};   // Stores the number of the previous active channel for the PAN CV
-        int activeMuteChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the MUTE
-        //initialize all active channels with -1, indicating nothing connected.
-
-        // Scan all inputs to determine the polyphony
-        for (int i = 0; i < 6; i++) {
-
-            // Check if L input is connected and get its number of channels
-            if (inputs[AUDIO_1L_INPUT + 2 * i].isConnected()) {
-                lChannels[i] = inputs[AUDIO_1L_INPUT + 2 * i].getChannels();
-            }
-
-            // Check if R input is connected and get its number of channels
-            if (inputs[AUDIO_1R_INPUT + 2 * i].isConnected()) {
-                rChannels[i] = inputs[AUDIO_1R_INPUT + 2 * i].getChannels();
-            }
-
-            // Determine the maximum number of channels between L and R
-            audioChannels[i] = std::max(lChannels[i], rChannels[i]);
-
-            // Handle polyphonic AUDIO input distribution
-            if (audioChannels[i] > 0) {
-                activeAudio[i] = i;
-            } else if (i > 0 && activeAudio[i-1] != -1) {
-                if (audioChannels[activeAudio[i-1]] > (i - activeAudio[i-1])) {
-                    activeAudio[i] = activeAudio[i-1]; // Carry over the active channel
-                } else {
-                    activeAudio[i] = -1; // No valid polyphonic channel to carry over
-                }
-            } else {
-                activeAudio[i] = -1; // Explicitly reset if not connected
-            }
-
-            // Update the VCA CV channels
-            if (inputs[VCA_CV1_INPUT + i].isConnected()) {
-                vcaChannels[i] = inputs[VCA_CV1_INPUT + i].getChannels();
-                activeVcaChannel[i] = i;
-            } else if (i > 0 && activeVcaChannel[i-1] != -1) {
-                if (vcaChannels[activeVcaChannel[i-1]] > (i - activeVcaChannel[i-1])) {
-                    activeVcaChannel[i] = activeVcaChannel[i-1]; // Carry over the active channel
-                } else {
-                    activeVcaChannel[i] = -1; // No valid polyphonic channel to carry over
-                }
-            } else {
-                activeVcaChannel[i] = -1; // Explicitly reset if not connected
-            }
-
-            // Update the PAN CV channels
-            if (inputs[PAN_CV1_INPUT + i].isConnected()) {
-                panChannels[i] = inputs[PAN_CV1_INPUT + i].getChannels();
-                activePanChannel[i] = i;
-            } else if (i > 0 && activePanChannel[i-1] != -1) {
-                if (panChannels[activePanChannel[i-1]] > (i - activePanChannel[i-1])) {
-                    activePanChannel[i] = activePanChannel[i-1]; // Carry over the active channel
-                } else {
-                    activePanChannel[i] = -1; // No valid polyphonic channel to carry over
-                }
-            } else {
-                activePanChannel[i] = -1; // Explicitly reset if not connected
-            }
-
-            // Update the MUTE channels
-            if (inputs[MUTE_1_INPUT + i].isConnected()) {
-                muteChannels[i] = inputs[MUTE_1_INPUT + i].getChannels();
-                activeMuteChannel[i] = i;
-            } else if (i > 0 && activeMuteChannel[i-1] != -1) {
-                if (muteChannels[activeMuteChannel[i-1]] > (i - activeMuteChannel[i-1])) {
-                    activeMuteChannel[i] = activeMuteChannel[i-1];
-                } else {
-                    activeMuteChannel[i] = -1; // No valid polyphonic channel to carry over
-                }
-            } else {
-                activeMuteChannel[i] = -1; // Explicitly reset if not connected
-            }
-        }
-
-		// Process each of the six main channels
+		// Early exit if nothing connected
+		bool sideConnected = inputs[SIDECHAIN_INPUT_L].isConnected() || inputs[SIDECHAIN_INPUT_R].isConnected();
+		if (firstConnectedChannel == -1 && !sideConnected) {
+			for (int k = 0; k < 6; ++k) {
+				filteredEnvelopeL[k] = 0.0f;
+				filteredEnvelopeR[k] = 0.0f;
+				filteredEnvelope[k] = 0.0f;
+				envPeakL[k] = 0.0f;
+				envPeakR[k] = 0.0f;
+				fadeLevel[k] = 0.0f;
+				transitionCount[k] = 0;
+				initialized[k] = false;
+				lastPan[k] = 0.0f;
+				inputL[k] = 0.0f;
+				inputR[k] = 0.0f;
+			}
+			compressionAmountL = 0.0f;
+			compressionAmountR = 0.0f;
+			pressTotalL = 0.0f;
+			pressTotalR = 0.0f;
+			volTotalL = 0.0f;
+			volTotalR = 0.0f;
+			distortTotalL = 0.0f;
+			distortTotalR = 0.0f;
+			outputs[AUDIO_OUTPUT_L].setVoltage(0.0f);
+			outputs[AUDIO_OUTPUT_R].setVoltage(0.0f);
+			return;
+		}
+		
+		// Scan ALL channels to build polyphony map, but only read inputs for channels that need it
+		if (updateUI){
+			for (int i = 0; i < 6; i++) {
+				activeAudio[i] = -1;
+				activeVcaChannel[i] = -1;
+				activePanChannel[i] = -1;
+				activeMuteChannel[i] = -1;
+			}
+			for (int i = 0; i < 6; i++) {
+				if (channelNeedsProcessing[i]) {
+	
+					// Check if L/R inputs are connected and get channel counts (reset to 0 if unplugged)
+					lChannels[i] = inputs[AUDIO_1L_INPUT + 2 * i].isConnected()
+						? inputs[AUDIO_1L_INPUT + 2 * i].getChannels() : 0;
+					rChannels[i] = inputs[AUDIO_1R_INPUT + 2 * i].isConnected()
+						? inputs[AUDIO_1R_INPUT + 2 * i].getChannels() : 0;
+		
+					// Determine the maximum number of channels between L and R
+					audioChannels[i] = std::max(lChannels[i], rChannels[i]);
+		
+					// Handle polyphonic AUDIO input distribution
+					if (audioChannels[i] > 0) {
+						activeAudio[i] = i;
+					} 
+		
+					// Update the VCA CV channels
+					vcaChannels[i] = inputs[VCA_CV1_INPUT + i].isConnected()
+						? inputs[VCA_CV1_INPUT + i].getChannels() : 0;
+					if (vcaChannels[i] > 0) activeVcaChannel[i] = i;
+		
+					// Update the PAN CV channels
+					panChannels[i] = inputs[PAN_CV1_INPUT + i].isConnected()
+						? inputs[PAN_CV1_INPUT + i].getChannels() : 0;
+					if (panChannels[i] > 0) activePanChannel[i] = i;
+		
+					// Update the MUTE channels
+					muteChannels[i] = inputs[MUTE_1_INPUT + i].isConnected()
+						? inputs[MUTE_1_INPUT + i].getChannels() : 0;
+					if (muteChannels[i] > 0) activeMuteChannel[i] = i;
+				}
+				// Propagate polyphony forward (must be done after all channels scanned)
+				if (i > 0) {
+					if (activeAudio[i] == -1 && activeAudio[i-1] != -1) {
+						if (audioChannels[activeAudio[i-1]] > (i - activeAudio[i-1])) {
+							activeAudio[i] = activeAudio[i-1];
+						}
+					}
+					if (activeVcaChannel[i] == -1 && activeVcaChannel[i-1] != -1) {
+						if (vcaChannels[activeVcaChannel[i-1]] > (i - activeVcaChannel[i-1])) {
+							activeVcaChannel[i] = activeVcaChannel[i-1];
+						}
+					}
+					if (activePanChannel[i] == -1 && activePanChannel[i-1] != -1) {
+						if (panChannels[activePanChannel[i-1]] > (i - activePanChannel[i-1])) {
+							activePanChannel[i] = activePanChannel[i-1];
+						}
+					}
+					if (activeMuteChannel[i] == -1 && activeMuteChannel[i-1] != -1) {
+						if (muteChannels[activeMuteChannel[i-1]] > (i - activeMuteChannel[i-1])) {
+							activeMuteChannel[i] = activeMuteChannel[i-1];
+						}
+					}
+				}
+			}
+		}
+		
+		// Process channels - but only those that actually need processing or have audio
 		for (int i = 0; i < 6; i++) {
 		
+			// ALWAYS process mute buttons for UI responsiveness (cheap operation)
 			bool muteButtonPressed = muteButton[i].process(params[MUTE1_PARAM + i].getValue());
-			bool muteInput = muteButtonInput[i].process(inputs[MUTE_1_INPUT + i].getVoltage());
-			bool shiftHeld = !isShifted[i].load(); // un-invert
+			bool muteInput = false;
+			
+			// Only read mute CV if connected
+			if (muteCVToggle && activeMuteChannel[i]>-1) {
+				muteInput = muteButtonInput[i].process(
+				    inputs[ MUTE_1_INPUT + activeMuteChannel[i] ].getPolyVoltage( i-activeMuteChannel[i] )
+				);
+			} 
+			
+			bool shiftHeld = !isShifted[i].load();
 			
 			if (shiftHeld && muteButtonPressed) {
-				// Shift-click: solo logic
 				bool thisChannelSoloing = true;
 				for (int j = 0; j < 6; j++) {
 					if (j != i && !muteState[j]) {
@@ -558,37 +669,37 @@ struct PressedDuck : Module {
 						break;
 					}
 				}
-			
 				if (!thisChannelSoloing) {
-					// Solo this channel: mute all others
 					for (int j = 0; j < 6; j++) {
 						muteState[j] = (j != i);
 					}
 				} else {
-					// Already soloing: unmute all
 					for (int j = 0; j < 6; j++) {
 						muteState[j] = false;
 					}
 				}
 			} else if ((!shiftHeld && muteButtonPressed) || muteInput) {
-				// Normal click: just toggle this channel (even if last one)
 				if (!muteLatch[i]) {
 					muteLatch[i] = true;
-					muteState[i] = !muteState[i];  // simple toggle
+					muteState[i] = !muteState[i];
 				}
 			} else {
-				// Button released: reset latch
 				muteLatch[i] = false;
+			}
+				
+			// Override with CV signal if in this mode
+			if (!muteCVToggle && activeMuteChannel[i]>-1) {
+				muteState[i] = (
+				    inputs[MUTE_1_INPUT + activeMuteChannel[i]].getPolyVoltage(i-activeMuteChannel[i]) > 0.f
+				);
 			}
 
 			if (muteStatePrevious[i] != muteState[i]) {
 				muteStatePrevious[i] = muteState[i];
-				transitionCount[i] = transitionSamples;  // reset transition
+				transitionCount[i] = transitionSamples;
 			}
-				
-			// -----------------------------
-			// Now check if the channel has an active audio source
-			// -----------------------------
+			
+			// Check if the channel has an active audio source
 			bool hasSource = false;
 			int base = activeAudio[i];
 			if (base >= 0) {
@@ -609,9 +720,7 @@ struct PressedDuck : Module {
 				continue; // skip DSP, but mute state is preserved
 			}
 		
-			// -----------------------------
 			// Read polyphonic audio input
-			// -----------------------------
 			bool inputActive = false;
 			bool baseHasL = false;
 			bool baseHasR = false;
@@ -621,8 +730,8 @@ struct PressedDuck : Module {
 				int baseChannels = audioChannels[base];
 				if (diff >= 0 && diff < baseChannels) {
 					inputActive = true;
-					baseHasL = (lChannels[base] > 0);
-					baseHasR = (rChannels[base] > 0);
+					baseHasL = inputs[AUDIO_1L_INPUT + 2 * base].isConnected();
+					baseHasR = inputs[AUDIO_1R_INPUT + 2 * base].isConnected();
 		
 					if (baseHasL && baseHasR) {
 						inputL[i] = inputs[AUDIO_1L_INPUT + 2 * base].getPolyVoltage(diff);
@@ -662,8 +771,8 @@ struct PressedDuck : Module {
 			inputL[i] *= fadeLevel[i];
 			inputR[i] *= fadeLevel[i];
 		
-			if (inputActive && fadeLevel[i] > 0.f) {
-				inputCount += 1.f; // only count channels contributing signal
+			if (inputActive ) { 
+				inputCount += 1.f; 
 			}
 		
 			// -----------------------------
@@ -683,7 +792,7 @@ struct PressedDuck : Module {
 				}
 			}
 
-            float vol = params[VOLUME1_PARAM + i].getValue();
+            float vol = cachedVolume[i];
             inputL[i] *= vol;
             inputR[i] *= vol;
 
@@ -703,7 +812,7 @@ struct PressedDuck : Module {
             compressionAmountR += filteredEnvelopeR[i];
 
             // Apply panning
-            float pan = params[PAN1_PARAM + i].getValue();
+            float pan = cachedPan[i];
 
             if (activePanChannel[i]==i) {
                 pan += inputs[PAN_CV1_INPUT + i].getPolyVoltage(0) / 5.f;
@@ -746,48 +855,14 @@ struct PressedDuck : Module {
             muteLatch[6] = false;
         }
 
-		// If no audio or side-chain channels are active, exit early to save CPU.
-		bool sideConnected = inputs[SIDECHAIN_INPUT_L].isConnected() || inputs[SIDECHAIN_INPUT_R].isConnected();
-		if (inputCount <= 0.0f && !sideConnected) {
-			// Clean up transient state so UI meters and envelopes don't show spurious values
-			for (int k = 0; k < 6; ++k) {
-				filteredEnvelopeL[k] = 0.0f;
-				filteredEnvelopeR[k] = 0.0f;
-				filteredEnvelope[k]  = 0.0f;
-				envPeakL[k] = 0.0f;
-				envPeakR[k] = 0.0f;
-				fadeLevel[k] = 0.0f;
-				transitionCount[k] = 0;
-				initialized[k] = false;
-				lastPan[k] = 0.0f;
-				inputL[k] = 0.0f;
-				inputR[k] = 0.0f;
-			}
-		
-			// Reset mix/envelope tracking variables used later
-			compressionAmountL = 0.0f;
-			compressionAmountR = 0.0f;
-			pressTotalL = 0.0f;
-			pressTotalR = 0.0f;
-			volTotalL = 0.0f;
-			volTotalR = 0.0f;
-			distortTotalL = 0.0f;
-			distortTotalR = 0.0f;
-		
-			// Write zero to outputs and exit before any heavy processing (ADAA/shaper/HPF/etc.)
-			outputs[AUDIO_OUTPUT_L].setVoltage(0.0f);
-			outputs[AUDIO_OUTPUT_R].setVoltage(0.0f);
-			return;
-		}
-
         float sideChain=0.f;
         if (sideConnected) sideChain = 1.f;
         compressionAmountL = compressionAmountL/((inputCount+sideChain)*5.0f); //divide by the expected ceiling
         compressionAmountR = compressionAmountR/((inputCount+sideChain)*5.0f); //process L and R separately
 
-        float pressAmount = params[PRESS_PARAM].getValue();
+        float pressAmount = cachedPress;
         if(inputs[PRESS_CV_INPUT].isConnected()){
-            pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*params[PRESS_ATT].getValue();
+            pressAmount += inputs[PRESS_CV_INPUT].getVoltage()*cachedPressAtt;
         }
         pressAmount = clamp(pressAmount, 0.0f, 1.0f);
 
@@ -800,17 +875,18 @@ struct PressedDuck : Module {
         }
 
         // MIX the channels scaled by compression
-        for (int i=0; i<6; i++){
-            if (compressionAmountL > 0.0f && inputCount>0.0f){ //avoid div by zero
-                    mixL += inputL[i]*pressTotalL;
-            } else { mixL = 0.0f;}
-            if (compressionAmountR > 0.0f && inputCount>0.0f){ //avoid div by zero
-                    mixR += inputR[i]*pressTotalR;
-            } else {mixR = 0.0f;}
-
+        if (compressionAmountL > 0.0f && inputCount > 0.0f) {
+            for (int i = 0; i < 6; i++) {
+                mixL += inputL[i] * pressTotalL;
+            }
+        }
+        if (compressionAmountR > 0.0f && inputCount > 0.0f) {
+            for (int i = 0; i < 6; i++) {
+                mixR += inputR[i] * pressTotalR;
+            }
         }
 
-        // Side processing and envelope calculation
+		// Side processing and envelope calculation
 
         // Initially check connection and set initial input values
         bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
@@ -825,11 +901,84 @@ struct PressedDuck : Module {
         if (!isSideConnectedR && isSideConnectedL) {
             sideR = sideL;
         }
-        processSide(sideL, sideR, decayRate, mixL, mixR);
 
-        float feedbackSetting = params[FEEDBACK_PARAM].getValue();
+        // Apply VCA control if connected
+        if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
+            float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
+            float vcaLevel = clamp(vcaVoltage, 0.f, 2.f);
+            sideL *= vcaLevel;
+            sideR *= vcaLevel;
+        }
+
+        // Apply volume control from the parameters
+        float sideVol = cachedSidechainVolume;
+        sideL *= sideVol;
+        sideR *= sideVol;
+
+        if (transitionCount[6] > 0) {
+            float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
+            fadeLevel[6] += fadeStep;
+            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
+                fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+                transitionCount[6] = 0;  // End transition
+            }
+            transitionCount[6]--;
+        } else {
+            fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
+        }
+
+        if (!mutedSideDucks){    //only fade out the sound if mixing it
+            sideL *= fadeLevel[6];
+            sideR *= fadeLevel[6];
+        }
+
+        if (!isSideConnectedL && !isSideConnectedR) {
+            // Reset envelope if sidechain inputs are not connected
+            sidePeakL = 0.0f;
+            sidePeakR = 0.0f;
+            filteredSideEnvelopeL = 0.0f;
+            filteredSideEnvelopeR = 0.0f;
+            sideEnvelope = 0.0f;
+        } else {
+            // Measure envelope from the pre-mix-scaled signal for clean linear ducking
+            sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
+            sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
+            filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
+            filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
+
+            // Scale sidechain up to match main mix level
+            sideL *= 6.0f;
+            sideR *= 6.0f;
+
+            // Calculate ducking based on pre-scaled envelope (0..5V = 0..full duck)
+            float duckAmount = cachedDuck;
+            if (inputs[DUCK_CV].isConnected()) {
+                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * cachedDuckAtt;
+            }
+
+			float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 1.5f));
+			float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 1.5f));
+
+            sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
+
+            if (!mutedSideDucks){
+                // Apply ducking to the main mix and add the processed side signals
+                mixL = (mixL * duckingFactorL) + sideL;
+                mixR = (mixR * duckingFactorR) + sideR;
+            } else {
+                if (muteState[6]) {
+                    mixL = (mixL * duckingFactorL);
+                    mixR = (mixR * duckingFactorR);
+                } else {
+                    mixL = (mixL * duckingFactorL) + sideL;
+                    mixR = (mixR * duckingFactorR) + sideR;
+                }
+            }
+        }
+
+        float feedbackSetting = cachedFeedback;
         if(inputs[FEEDBACK_CV].isConnected()){
-            feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*params[FEEDBACK_ATT].getValue();
+            feedbackSetting += inputs[FEEDBACK_CV].getVoltage()*cachedFeedbackAtt;
         }
 
         feedbackSetting = 11.0f*pow(feedbackSetting/11.0f, 3.0f);
@@ -859,9 +1008,9 @@ struct PressedDuck : Module {
         lastOutputR = mixR;
 
         // Set outputs
-        float masterVol = params[MASTER_VOL].getValue();
+        float masterVol = cachedMasterVol;
         if (inputs[MASTER_VOL_CV].isConnected()){
-            masterVol += inputs[MASTER_VOL_CV].getVoltage()*params[MASTER_VOL_ATT].getValue()/10.f;
+            masterVol += inputs[MASTER_VOL_CV].getVoltage()*cachedMasterVolAtt/10.f;
         }
         masterVol = clamp(masterVol, 0.0f, 2.0f);
 
@@ -914,87 +1063,7 @@ struct PressedDuck : Module {
 		return 1.0f - x2 * (0.5f - x2 * (1.0f/24.0f - x2 / 720.0f));
 	}
 
-    void processSide(float &sideL, float &sideR, float decayRate, float &mixL, float &mixR) {
-        // Apply VCA control if connected
-        if (inputs[VCA_SIDECHAIN_INPUT].isConnected()) {
-            float vcaVoltage = inputs[VCA_SIDECHAIN_INPUT].getVoltage() / 10.f;
-            float vcaLevel = clamp(vcaVoltage, 0.f, 2.f);
-            sideL *= vcaLevel;
-            sideR *= vcaLevel;
-        }
-
-        // Apply volume control from the parameters
-        float sideVol = params[SIDECHAIN_VOLUME_PARAM].getValue();
-        sideL *= sideVol;
-        sideR *= sideVol;
-
-        if (transitionCount[6] > 0) {
-            float fadeStep = (muteState[6] ? -1.0f : 1.0f) / transitionSamples;
-            fadeLevel[6] += fadeStep;
-            if ((muteState[6] && fadeLevel[6] < 0.0f) || (!muteState[6] && fadeLevel[6] > 1.0f)) {
-                fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-                transitionCount[6] = 0;  // End transition
-            }
-            transitionCount[6]--;
-        } else {
-            fadeLevel[6] = muteState[6] ? 0.0f : 1.0f;
-        }
-
-        if (!mutedSideDucks){    //only fade out the sound if mixing it
-            sideL *= fadeLevel[6];
-            sideR *= fadeLevel[6];
-        }
-
-        // Check sidechain connection
-        bool isSideConnectedL = inputs[SIDECHAIN_INPUT_L].isConnected();
-        bool isSideConnectedR = inputs[SIDECHAIN_INPUT_R].isConnected();
-
-        if (!isSideConnectedL && !isSideConnectedR) {
-            // Reset envelope if sidechain inputs are not connected
-            sidePeakL = 0.0f;
-            sidePeakR = 0.0f;
-            filteredSideEnvelopeL = 0.0f;
-            filteredSideEnvelopeR = 0.0f;
-            sideEnvelope = 0.0f;
-        } else {
-            // Calculate the envelope for the side signals
-            sidePeakL = fmax(sidePeakL * decayRate, fabs(sideL));
-            sidePeakR = fmax(sidePeakR * decayRate, fabs(sideR));
-            filteredSideEnvelopeL = alpha * sidePeakL + (1 - alpha) * filteredSideEnvelopeL;
-            filteredSideEnvelopeR = alpha * sidePeakR + (1 - alpha) * filteredSideEnvelopeR;
-
-            // Apply the envelope to the side signals
-            sideL *= filteredSideEnvelopeL;
-            sideR *= filteredSideEnvelopeR;
-
-            // Calculate ducking based on the side envelope
-            float duckAmount = params[DUCK_PARAM].getValue();
-            if (inputs[DUCK_CV].isConnected()) {
-                duckAmount += clamp(inputs[DUCK_CV].getVoltage() / 5.0f, 0.f, 1.f) * params[DUCK_ATT].getValue();
-            }
-            float duckingFactorL = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeL / 5.0f));
-            float duckingFactorR = fmax(0.0f, 1.f - duckAmount * (filteredSideEnvelopeR / 5.0f));
-            sideEnvelope = (filteredSideEnvelopeL + filteredSideEnvelopeR) / 2.0f;
-
-            if (!mutedSideDucks){
-                // Apply ducking to the main mix and add the processed side signals
-                mixL = (mixL * duckingFactorL) + sideL;
-                mixR = (mixR * duckingFactorR) + sideR;
-            } else {
-                if (muteState[6]) {
-                    mixL = (mixL * duckingFactorL) ;
-                    mixR = (mixR * duckingFactorR) ;
-
-                } else {
-                    mixL = (mixL * duckingFactorL) + sideL;
-                    mixR = (mixR * duckingFactorR) + sideR;
-                }
-            }
-        }
-    }//end process side
-
 };
-
 
 struct PressedDuckWidget : ModuleWidget {
 
@@ -1203,14 +1272,12 @@ struct PressedDuckWidget : ModuleWidget {
     }
 
 	void step() override {
-		// Cast base Module* to your subclass
 		PressedDuck* module = dynamic_cast<PressedDuck*>(this->module);
-		if (!module) return;
-	
-		updateLights(module);
+		if (module)
+			updateLights(module);
 		ModuleWidget::step();
 	}
-	
+		
 	void updateLights(PressedDuck* module) {    
 		for (int i = 0; i < 6; i++) {
 			module->lights[PressedDuck::VOLUME1_LIGHT + i].setBrightness(module->filteredEnvelope[i]);
@@ -1243,6 +1310,33 @@ struct PressedDuckWidget : ModuleWidget {
 			}
 		}
 	}
+
+    // Generic Quantity for any float member 
+    struct FloatMemberQuantity : Quantity {
+        PressedDuck* module;
+        float PressedDuck::*member; // pointer-to-member
+        std::string label;
+        float min, max, def;
+        int precision;
+    
+        FloatMemberQuantity(PressedDuck* m, float PressedDuck::*mem, std::string lbl,
+                            float mn, float mx, float df, int prec = 0)
+            : module(m), member(mem), label(lbl), min(mn), max(mx), def(df), precision(prec) {}
+    
+        void setValue(float v) override { if (module) module->*member = clamp(v, min, max); }
+        float getValue() override { return module ? module->*member : def; }
+        float getDefaultValue() override { return def; }
+        float getMinValue() override { return min; }
+        float getMaxValue() override { return max; }
+        int getDisplayPrecision() override { return precision; }
+    
+        std::string getLabel() override { return label; }
+        std::string getDisplayValueString() override {
+            if (precision == 0)
+                return std::to_string((int)std::round(getValue()));
+            return string::f("%.*f", precision, getValue());
+        }
+    };
 
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
@@ -1313,6 +1407,40 @@ struct PressedDuckWidget : ModuleWidget {
         supersamplingItem->text = "Enable Supersampling";
         supersamplingItem->PressedDuckModule = PressedDuckModule;
         menu->addChild(supersamplingItem);
+
+        // Separator for visual grouping in the context menu
+        menu->addChild(new MenuSeparator());
+
+
+        // muteCVToggle menu item
+        struct MuteCVToggleMenuItem : MenuItem {
+            PressedDuck* PressedDuckModule;
+            void onAction(const event::Action& e) override {
+                // Toggle the "Muted Side Ducks" mode
+                PressedDuckModule->muteCVToggle = !PressedDuckModule->muteCVToggle;
+            }
+            void step() override {
+                // Update the display to show a checkmark when the mode is active
+                rightText = PressedDuckModule->muteCVToggle ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+
+        // Create the MutedSideDucks menu item and add it to the menu
+        MuteCVToggleMenuItem* mutedCVToggleItem = new MuteCVToggleMenuItem();
+        mutedCVToggleItem->text = "Mute CVs function as Toggle";
+        mutedCVToggleItem->PressedDuckModule = PressedDuckModule;
+        menu->addChild(mutedCVToggleItem);
+
+        // Separator for new section
+        menu->addChild(new MenuSeparator);
+
+        // Envelope polySpan
+        auto* fadeSlider = new ui::Slider();
+        fadeSlider->quantity = new FloatMemberQuantity(PressedDuckModule, &PressedDuck::transitionTime,
+            "Mute Fade Time (ms)", 1.f, 4000.f, 19.f, 0);
+        fadeSlider->box.size.x = 200.f;
+        menu->addChild(fadeSlider);
 
     }
 };

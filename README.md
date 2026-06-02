@@ -1,105 +1,80 @@
-# CV funk Module Collection for VCV Rack
+# CV funk — Modules for VCV Rack
 
-Explore the vast possibilities of modular synthesis with the CV funk Module Collection, designed for VCV Rack. This suite of modules simplifies generating a complex spectrum of modulation and sound from simple inputs. The modules are each carefully engineered to inject dynamic modulation, intricate sequencing, and immersive soundscapes into your musical creations! From the precise steps of the Penta Sequencer to the wide range of creative freedom offered by the Step Wave, each module is designed to explore patch-programmable modular synthesis in a new way, inviting you to dive deep into the complexities of sound design with intuitive macro-controls.
+CV funk is a growing collection of VCV Rack modules focused on expressive modulation, sequencing, and patch-programmable control systems.
 
-Please see the [USER'S MANUAL](/img/CV_funk_Manual.pdf) for more information.
+The collection spans envelope generators, sequencers, clocking tools, macro controllers, oscillators, effects, and experimental CV processors. Many modules are intentionally open-ended: they reward patching, feedback, and cross-modulation rather than fixed signal paths.
 
-![Dark CV funk Module Panels](/img/darkmodules.png)
+With over 40 modules and ongoing development, CV funk emphasizes macro-driven modulation, nonlinear sequencing concepts, compact information-dense interfaces, and patch-first experimentation. Whether you are building generative systems, structured sequences, or evolving control networks, CV funk is designed to bring a new twist to your VCV patches.
 
-## Modules Overview
+---
 
-### Steps
-A fusion of comparison logic and step sequencing makes complexity from simple controls. It visually displays the current position within the window.
+## Documentation
 
-### Envelope Array
-An envelope generation powerhouse, offering smooth controls over the shape and dynamics of your sound. With six related envelope stages featuring adjustable slant and curve parameters. Creates single-shot or cycling envelopes ranging from ms to minutes.
+> **[CV funk User Manual Website](https://codygeary.github.io/CV-Funk-Manual/)**
+> 
+> **[CV funk User Manual (PDF)](/img/CV_funk_Manual.pdf)**
 
-### Penta Sequencer
-A 5-step sequencer that redefines rhythmic and melodic structuring, offering Circle and Star modes for unique sequencing. Directional control and adjustable slew for smooth transitions.
+The manual covers all modules in the collection: panel controls and I/O, operating modes and signal ranges, and patch ideas and example workflows. If you are new to CV funk, start here.
 
-### Impulse Controller
-Simulate the movement of waves through a network of nodes with the Impulse Controller module. This module offers a unique approach to modulation, with 24 outputs representing the ebb and flow of energy through a complex node connected network.
+---
 
-### Signals
-Observe and compare six signal inputs. Range from ms to secs with selector switch. With trigger reset toggle for visualizing envelopes.
+## Video Tutorials & Demos
 
-### Ranges
-Split two signals into a range of 0-12 fractional mixes. Easily generate musical intervals, pan or attenuate voltages, or as a source.
+Many CV funk modules are covered in depth by **[Omri Cohen](https://www.patreon.com/omricohen)**. These videos are especially useful for understanding how the modules behave in real patches.
 
-### Hex Mod
-Six phase related LFOs, with Sync and unique controls over the phasing.
+### Walkthroughs
 
-### Collatz
-Generate polyrhythmic trigger sequences synchronized to a clock. Uses the Collatz conjecture to generate interesting patterns of polyrhythms.
+**Chord Caster** — chord generation and voicing system  
+[![Chord Caster walkthrough](https://img.youtube.com/vi/x65hqgAlfEA/0.jpg)](https://www.youtube.com/watch?v=x65hqgAlfEA)
 
-### Strings
-Generates chord voicings of a guitar. Intuitive button interface makes generating chord progressions a breeze. Displays guitar chords. Allows per string bending, whammy bar bending, and capo.
+**CV funk Modulations** — overview and patching examples  
+[![CV funk Modulations walkthrough](https://img.youtube.com/vi/eaU2KAXOeCI/0.jpg)](https://www.youtube.com/watch?v=eaU2KAXOeCI)
 
-### Magnets
-Explore magnetism by interacting with a small spin-lattice simulation. Interact with the lattice with CV inputs. Outputs 24 4-pole filtered LFO signals.
+---
 
-### Ouros
-A stereo phase injection oscillator with a unique polar display. Generate unique timbres, animated waveforms, and stereo effects. Morph continuously in an enormous latent space of complex wave shapes.
+### Individual Module Demos
 
-### Pressed Duck
-A stereo 6 channel side-chain ducking mixer with compression, saturation, and feedback distortion.
+**Cartesia** — 4×4×4 sequencer  
+[![Cartesia demo](https://img.youtube.com/vi/hlZukBHdDws/0.jpg)](https://youtube.com/watch?v=hlZukBHdDws)
 
-### Flower Patch
-A 12-tone scale polar visualizer for audio signals using FFT processing.
+**Step Wave** — wave-based step sequencer  
+[![Step Wave walkthrough](https://img.youtube.com/vi/LT-7bXAbz20/0.jpg)](https://www.youtube.com/watch?v=LT-7bXAbz20)
 
-### Syncro
-An 8-channel clock ratio generator.
+---
 
-### Nona
-A 9-channel CV gain/offset utility mixer.
+### Module Roundups
 
-### Decima
-A 10-channel gate sequencer with per-step probability.
+**September 2025** — Hammer, Picus, Wonk, Weave, Junk DNA, Node  
+[![September 2025 rundown](https://img.youtube.com/vi/EdPVROhwRts/0.jpg)](https://youtu.be/EdPVROhwRts?si=2NRXqFyyVH9tyveB&t=541)
 
-### Morta
-A single-knob macro-controller utility with 16 simultaneous outputs in different ranges.
+**November 2025** — Alloy, Clpy, Onion, Count, Rat, Tuner  
+[![November 2025 rundown](https://img.youtube.com/vi/r3QMHA-M_ZM/0.jpg)](https://youtu.be/r3QMHA-M_ZM?si=O7fFG9FB8MjzubeK&t=1027)
 
-### Step Wave
-An 8-step wave sequencer with rhythmic displacement control over the boundaries between stages, and variable shape control for each stage.
+---
 
-### Preeeeeeeeeeessed Duck
-A sixteen channel version of Pressed Duck
+### Community Demos
 
-### Arrange
-A 7-channel input sampling sequencer/programmer.
+**PatchWerk with Miles — CV funk Modules**  
+[![PatchWerk with Miles — CV funk Modules](https://img.youtube.com/vi/yBYJJB05Drw/0.jpg)](https://youtu.be/yBYJJB05Drw?si=1Oyc1KnfgNxWWWCc)
 
-### Tri Delay
-A 3-tap delay effect with 8x oversampled anti-aliasing, anti-derivative anti-aliased tanh saturation, and lagrange fractional delays.
+**Modules CV Funk pour VCV Rack** (en français)  
+[![Modules CV Funk pour VCV Rack (FR)](https://img.youtube.com/vi/sm0ftWGepqM/0.jpg)](https://www.youtube.com/watch?v=sm0ftWGepqM)
 
-### Tatami
-A stereo polyphonic wavefolder effect with anti-aliasing.
+---
 
-### Cartesia
-A 4x4x4 CV and gate sequencer with CV control over the knob range, live-updating displays, and anti-aliasing.
+## Supporting Development
 
-### Junk DNA
-A DNA-based gate sequencer. Input IUPAC DNA codes to generate randomized DNA repeats, and then sequence them.
+CV funk includes two paid module collections available through the VCV Rack library. Purchasing these directly supports maintenance, new modules, and documentation.
 
-### Picus
-A seven stage clock multiplier busrt sequencer, features programmable pulse patterns and multiple outputs.
+- [Chord Caster](https://library.vcvrack.com/CVfunkChordCaster)
+- [CV funk Modulations](https://library.vcvrack.com/CVfunkModulations)
 
-### Node
-A compact two channel stereo crossfading mixer with 5x gain, gentle tanh saturation and ADAA.
-–––––––––––––––––––––––––––––
+---
 
-NEW: Check out Omri Cohen's demo of the Cartesia sequencer module here:
+## Development Thread
 
-[![Omri Cohen's demo of Cartesia sequencer](https://img.youtube.com/vi/hlZukBHdDws/0.jpg)](https://youtube.com/watch?v=hlZukBHdDws)
+Ongoing updates, announcements, and discussion: [VCV Rack community forum](https://community.vcvrack.com/t/new-modules-by-cv-funk/)
 
-Omri Cohen's walkthrough of the Step Wave sequencer module here:
+---
 
-[![Omri Cohen's walkthrough of the Step Wave sequencer](https://img.youtube.com/vi/LT-7bXAbz20/0.jpg)](https://www.youtube.com/watch?v=LT-7bXAbz20)
-
-If you want to support my development of VCV modules, consider purchasing my paid module Chord Caster (https://library.vcvrack.com/CVfunkChordCaster). It's a full semi-modular synth with a unique sequencer. You can see a demo video of the module from Omri Cohen here:
-
-[![Omri Cohen's walkthrough of the Chord Caster](https://img.youtube.com/vi/x65hqgAlfEA/0.jpg)](https://www.youtube.com/watch?v=x65hqgAlfEA)
-
-You can also follow the developer blog <a href = "https://community.vcvrack.com/t/new-modules-by-cv-funk/">HERE</a>
-
-Please see the [USER'S MANUAL](/img/CV_funk_Manual.pdf) for more information on the operation of these modules.
-
+![CV funk module panels](/img/darkmodules.png)

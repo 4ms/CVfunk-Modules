@@ -79,12 +79,14 @@ struct Node : Module {
     float transitionTime = 10.0f; // 10ms default
     
     bool polyOutput = false; //for polyphonic chaining option
+    bool polySum = false;   // when true, poly->mono sums channels instead of averaging them
     
     json_t* dataToJson() override {
         json_t* rootJ = json_object();
 
-        // Save polyOutput
+        // Save polyOutput and polySum
         json_object_set_new(rootJ, "polyOutput", json_boolean(polyOutput));
+        json_object_set_new(rootJ, "polySum", json_boolean(polySum));
 
         // Save transitionTime
         json_object_set_new(rootJ, "transitionTime", json_real(transitionTime));
@@ -106,6 +108,12 @@ struct Node : Module {
         json_t* polyJ = json_object_get(rootJ, "polyOutput");
         if (polyJ) {
             polyOutput = json_boolean_value(polyJ);
+        }
+
+        // Load polySum
+        json_t* polySumJ = json_object_get(rootJ, "polySum");
+        if (polySumJ) {
+            polySum = json_boolean_value(polySumJ);
         }
 
         // Load transitionTime
@@ -216,8 +224,9 @@ struct Node : Module {
             ch1Lsum += inL;
             ch1Rsum += inR;
         }
-        float in1L = (ch1Channels > 0) ? ch1Lsum / ch1Channels : 0.f;
-        float in1R = (ch1Channels > 0) ? ch1Rsum / ch1Channels : 0.f;
+        // Average channels by default; sum mode preserves per-voice level regardless of channel count
+        float in1L = (ch1Channels > 0) ? (polySum ? ch1Lsum : ch1Lsum / ch1Channels) : 0.f;
+        float in1R = (ch1Channels > 0) ? (polySum ? ch1Rsum : ch1Rsum / ch1Channels) : 0.f;
     
         // ===== Process Channel 2 (stereo poly aware) =====
         int ch2Channels = std::max(inputs[_2_IN1].getChannels(), inputs[_2_IN2].getChannels());
@@ -243,8 +252,9 @@ struct Node : Module {
             ch2Lsum += inL;
             ch2Rsum += inR;
         }
-        float in2L = (ch2Channels > 0) ? ch2Lsum / ch2Channels : 0.f;
-        float in2R = (ch2Channels > 0) ? ch2Rsum / ch2Channels : 0.f;
+        // Average channels by default; sum mode preserves per-voice level regardless of channel count
+        float in2L = (ch2Channels > 0) ? (polySum ? ch2Lsum : ch2Lsum / ch2Channels) : 0.f;
+        float in2R = (ch2Channels > 0) ? (polySum ? ch2Rsum : ch2Rsum / ch2Channels) : 0.f;
     
         // ===== MIX AND OUTPUT =====
         volume = params[VOL_PARAM].getValue();
@@ -304,10 +314,12 @@ struct Node : Module {
             float maxHeadRoom = 13.14f;
             outL = clamp(outL, -maxHeadRoom, maxHeadRoom);
             outR = clamp(outR, -maxHeadRoom, maxHeadRoom);
-            outL = applyADAA(outL / 10.f, lastInputL, args.sampleRate);
-            outR = applyADAA(outR / 10.f, lastInputR, args.sampleRate);
-            lastInputL = outL;
-            lastInputR = outR;
+            float inputL = outL / 10.f;
+            float inputR = outR / 10.f;
+            outL = applyADAA(inputL, lastInputL, args.sampleRate);
+            outR = applyADAA(inputR, lastInputR, args.sampleRate);
+            lastInputL = inputL;  // Store input, not output
+            lastInputR = inputR;
         
             outputs[OUT1].setVoltage(clamp(outL * volume * 6.9f, -10.f, 10.f));
             outputs[OUT2].setVoltage(clamp(outR * volume * 6.9f, -10.f, 10.f));
@@ -442,11 +454,11 @@ struct NodeWidget : ModuleWidget {
 
     void step() override {
         Node* module = dynamic_cast<Node*>(this->module);
-        if (!module) return;
-
-        module->lights[Node::MUTE_LIGHT1].setBrightness(module->muteState[0] ? 1.0f : 0.f);
-        module->lights[Node::MUTE_LIGHT2].setBrightness(module->muteState[1] ? 1.0f : 0.f);
-        updateLights();
+        if (module){
+            module->lights[Node::MUTE_LIGHT1].setBrightness(module->muteState[0] ? 1.0f : 0.f);
+            module->lights[Node::MUTE_LIGHT2].setBrightness(module->muteState[1] ? 1.0f : 0.f);
+            updateLights();
+        }
         ModuleWidget::step();
     }
 
@@ -513,8 +525,8 @@ struct NodeWidget : ModuleWidget {
                             float mn, float mx, float df, int prec = 0)
             : module(m), member(mem), label(lbl), min(mn), max(mx), def(df), precision(prec) {}
     
-        void setValue(float v) override { module->*member = clamp(v, min, max); }
-        float getValue() override { return module->*member; }
+        void setValue(float v) override { if (module) module->*member = clamp(v, min, max); }
+        float getValue() override { return module ? module->*member : def; }
         float getDefaultValue() override { return def; }
         float getMinValue() override { return min; }
         float getMaxValue() override { return max; }
@@ -555,11 +567,27 @@ struct NodeWidget : ModuleWidget {
         polyOutputItem->text = "Output poly instead of mix"; // Set menu item text
         polyOutputItem->nodeModule = nodeModule;             // Pass the module pointer
         menu->addChild(polyOutputItem);                      // Add to context menu
+
+        // Poly Sum menu item — sums poly channels instead of averaging when mixing to mono
+        struct PolySumItem : MenuItem {
+            Node* nodeModule;
+            void onAction(const event::Action& e) override {
+                nodeModule->polySum = !nodeModule->polySum;
+            }
+            void step() override {
+                rightText = nodeModule->polySum ? "✔" : "";
+                MenuItem::step();
+            }
+        };
+        PolySumItem* polySumItem = new PolySumItem();
+        polySumItem->text = "Sum poly channels (instead of average)";
+        polySumItem->nodeModule = nodeModule;
+        menu->addChild(polySumItem);
         
         // Envelope polySpan
         auto* fadeSlider = new ui::Slider();
         fadeSlider->quantity = new FloatMemberQuantity(nodeModule, &Node::transitionTime,
-            "Mute Fade Time (ms)", 1.f, 2000.f, 19.f, 0);
+            "Mute Fade Time (ms)", 1.f, 4000.f, 19.f, 0);
         fadeSlider->box.size.x = 200.f;
         menu->addChild(fadeSlider);
                 

@@ -24,6 +24,7 @@ struct Signals : Module {
         RANGE_PARAM,
         TRIGGER_ON_PARAM,
         RANGE_BUTTON_PARAM,
+        RESET_PARAM,        
         NUM_PARAMS
     };
     enum InputId {
@@ -54,6 +55,8 @@ struct Signals : Module {
     int scopeChannels[6] = {0, 0, 0, 0, 0, 0};  // Number of polyphonic channels for Scope inputs
     int activeScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Stores the number of the previous active channel for the Scope
     int previousActiveScopeChannel[6] = {-1, -1, -1, -1, -1, -1};  // Track previous state to detect changes
+    bool resetToggleProcessed = false;
+
 
     //non-glitchy display refreshing
     bool waitingForTrigger[6] = {true, true, true, true, true, true};
@@ -80,6 +83,7 @@ struct Signals : Module {
         configParam(RANGE_PARAM, 0.1f, 0.9999f, 0.5f, "Range");
         configParam(TRIGGER_ON_PARAM, 0.f, 1.f, 1.f, "Retriggering");
         configSwitch(RANGE_BUTTON_PARAM, 0.f, 1.f, 0.f, "Mode", {"Default", "Slow"});
+        configParam(RESET_PARAM, 0.f, 1.f, 0.f, "Reset displays");
 
         lastTriggerTime.fill(0.0f);
         MAX_BUFFER_SIZE = int(static_cast<int>(APP->engine->getSampleRate() * MAX_TIME));
@@ -100,6 +104,20 @@ struct Signals : Module {
         }
         for (auto &buffer : displayBuffers) {
             buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+        }
+    }
+
+    // Clears all buffers and resets capture state for all channels.
+    void resetAllChannels() {
+        for (int i = 0; i < 6; ++i) {
+            std::fill(envelopeBuffers[i].begin(), envelopeBuffers[i].end(), 0.f);
+            std::fill(displayBuffers[i].begin(), displayBuffers[i].end(), 0.f);
+            writeIndices[i] = 0;
+            lastInputs[i] = 0.f;
+            lastTriggerTime[i] = 0.f;
+            waitingForTrigger[i] = true;
+            displayReady[i] = false;
+            samplesSinceTrigger[i] = 0;
         }
     }
     
@@ -249,6 +267,15 @@ struct Signals : Module {
         } else if (params[TRIGGER_ON_PARAM].getValue() <= 0.5f) {
             retriggerToggleProcessed = false;
         }
+
+        // --- Reset button ---
+        if (params[RESET_PARAM].getValue() > 0.5f && !resetToggleProcessed) {
+            resetAllChannels();
+            resetToggleProcessed = true;
+            params[RESET_PARAM].setValue(0.0f);
+        } else if (params[RESET_PARAM].getValue() <= 0.5f) {
+            resetToggleProcessed = false;
+        }
     
         lights[TRIGGER_ON_LIGHT].setBrightness(retriggerEnabled ? 1.0f : 0.0f);
     
@@ -269,8 +296,57 @@ struct WaveformDisplay : TransparentWidget {
 
     WaveformDisplay(NVGcolor color) : waveformColor(color) {}
 
+    // Draws a static preview waveform when no module is loaded (library / browser).
+    // Each channel gets a distinct waveform shape so the display looks lively.
+    void drawDummyWaveform(const DrawArgs& args) {
+        const int N = 128;
+        const float w = box.size.x;
+        const float h = box.size.y;
+        const float cy = h * 0.5f;
+        const float amp = h * 0.38f;
+
+        nvgBeginPath(args.vg);
+        for (int i = 0; i <= N; i++) {
+            float t = (float)i / N;
+            float v = 0.f;
+
+            switch (channelId) {
+                case 0: // sine, 2 cycles
+                    v = std::sin(t * 2.f * float(M_PI) * 2.f);
+                    break;
+                case 1: // sawtooth, 2 cycles
+                    v = 2.f * std::fmod(t * 2.f, 1.f) - 1.f;
+                    break;
+                case 2: // square, 2 cycles
+                    v = std::sin(t * 2.f * float(M_PI) * 2.f) >= 0.f ? 1.f : -1.f;
+                    break;
+                case 3: // triangle, 2 cycles
+                    v = 1.f - 4.f * std::abs(std::fmod(t * 2.f + 0.25f, 1.f) - 0.5f);
+                    break;
+                case 4: // damped sine (envelope-like)
+                    v = std::sin(t * 2.f * float(M_PI) * 3.f) * std::exp(-t * 3.5f);
+                    break;
+                case 5: // slow sine, offset phase
+                    v = std::sin(t * 2.f * float(M_PI) * 1.5f + 1.f);
+                    break;
+                default:
+                    v = 0.f;
+            }
+
+            float x = t * w;
+            float y = cy - v * amp;
+            i == 0 ? nvgMoveTo(args.vg, x, y) : nvgLineTo(args.vg, x, y);
+        }
+        nvgStrokeWidth(args.vg, 1.5f);
+        nvgStrokeColor(args.vg, waveformColor);
+        nvgStroke(args.vg);
+    }
+
     void drawWaveform(const DrawArgs& args) {
-        if (!module) return;
+        if (!module) {
+            drawDummyWaveform(args);
+            return;
+        }
 
         // Always show last valid waveform if available
         const auto& buffer = module->displayBuffers[channelId];
@@ -304,7 +380,7 @@ struct WaveformDisplay : TransparentWidget {
     
         // Draw the waveform
         nvgBeginPath(args.vg);
-        nvgStrokeWidth(args.vg, 2.0f);
+        nvgStrokeWidth(args.vg, 1.8f);
         nvgStrokeColor(args.vg, waveformColor);        
         nvgMoveTo(args.vg, points[0].x, points[0].y);
         for (size_t i = 1; i < points.size(); ++i) { // Start from 1 to avoid duplicating the first point
@@ -322,7 +398,9 @@ struct WaveformDisplay : TransparentWidget {
     }
 
     void draw(const DrawArgs& args) override {
-        // Only drawing in the self-illuminating layer
+        // Draw dummy waveform in the base layer when there is no module
+        // (library / browser preview). Live waveforms render in drawLayer(1).
+        if (!module) drawDummyWaveform(args);
     }
 };
 
@@ -347,6 +425,9 @@ struct SignalsWidget : ModuleWidget {
 
         addParam(createParam<CKSS>(mm2px(Vec(17, 14)), module, Signals::RANGE_BUTTON_PARAM));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23, 16)), module, Signals::LONG_LIGHT));
+
+        // Reset button 
+        addParam(createParamCentered<TL1105>(mm2px(Vec(43, 19)), module, Signals::RESET_PARAM));
 
         addParam(createParamCentered<TL1105>(mm2px(Vec(50, 19)), module, Signals::TRIGGER_ON_PARAM));
         addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(55, 19)), module, Signals::TRIGGER_ON_LIGHT));

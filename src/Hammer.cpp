@@ -457,25 +457,19 @@ struct Hammer : Module {
                 ratio[i] = 1.0f; // div by zero safety
             }
 
-            if (i < 1){  //Swing clock reset logic
+            if (i < 1){  //External-clock swing reset logic: fires once per incoming tick via resetPulse
                 if ( inputs[EXT_CLOCK_INPUT].isConnected() ) {
-                      if (resetPulse){
+                    if (resetPulse){
                         swingCount++;
-                        if (swingCount > 1.f){
+                        if (swingCount > 1){
                             SwingTimer.reset();
                             swingCount = 0;
                         }
                         resetPulse = false;
                     }
-                } else {
-                    if ( ClockTimer[0].time >= (60.0f / (bpm ) ) ){
-                        swingCount++;
-                        if (swingCount > 1.f){
-                            SwingTimer.reset();
-                            swingCount = 0;
-                        }
-                    }
                 }
+                // Internal-clock swing count is handled below inside the processSampleCounter block,
+                // so it fires exactly once per master tick rather than continuously while the timer exceeds the threshold.
             }
 
             if ( (ClockTimer[i].time >= (60.0f / (bpm * ratio[i]))) && i>0) ClockTimer[i].reset();  //Process Channels via timer for continuous swing
@@ -485,19 +479,22 @@ struct Hammer : Module {
     
                 ClockTimer[0].reset(); //Process master clock with straight sample-based clock and swing offset
                 if (i == 0) {  // Master clock reset point
+
+                    // Internal-clock swing count: increment once per master tick so SwingTimer resets
+                    // on every second beat cleanly, independent of swing-warped deltaTime.
+                    if (!inputs[EXT_CLOCK_INPUT].isConnected()) {
+                        swingCount++;
+                        if (swingCount > 1){
+                            SwingTimer.reset();
+                            swingCount = 0;
+                        }
+                    }
                     masterClockCycle++;
                     clockPulse.trigger(args.sampleTime);  //Trigger Pulse for Chain Connection
-                    // Rotate phases
-                    for (int k = 1; k < (CHANNELS+1); k++) {
-                        int newIndex = (k + clockRotate) % CHANNELS;
-                        if (newIndex < 0) {
-                            newIndex += CHANNELS; // Adjust for negative values to wrap around correctly
-                        }
-                        tempPhases[newIndex + 1] = phases[k];
-                    }
-                    for (int k = 1; k < (CHANNELS+1); k++) {
-                        phases[k] = tempPhases[k];
-                    }
+                    // Note: phase rotation is handled at output time via srcIndex lookup,
+                    // not by shuffling phases[] here. Shuffling mid-loop caused a 1-sample
+                    // crosstalk spike because channels later in the loop would read a
+                    // rotated (near-1.0) phase value before their ClockTimer was reset.
 
                     for (int j = 1; j < (CHANNELS+1); j++) {
                         if (masterClockCycle % lcmWithMaster[j] == 0) {
@@ -799,7 +796,7 @@ struct HammerWidget : ModuleWidget {
             ChannelFloatQuantity(Hammer* m, int i, std::string lbl, float mn, float mx, int prec = 0)
                 : module(m), idx(i), label(lbl), minV(mn), maxV(mx), precision(prec) {}
             void setValue(float v) override {
-                float cv = clamp(v, minV, maxV);
+                float cv = std::round(clamp(v, minV, maxV));
                 // Determine whether label contains "Multiply" or "Divide" to write the right array
                 if (label.rfind("Multiply", 0) == 0) {
                     module->multiply[idx] = cv;
