@@ -54,10 +54,12 @@ target_sources(CVfunk
 	${CVFUNK_SOURCE_DIR}/src/Signals.cpp
 	${CVFUNK_SOURCE_DIR}/src/StepWave.cpp
 	${CVFUNK_SOURCE_DIR}/src/Steps.cpp
+	${CVFUNK_SOURCE_DIR}/src/Strata.cpp
 	${CVFUNK_SOURCE_DIR}/src/Strings.cpp
 	${CVFUNK_SOURCE_DIR}/src/Syncro.cpp
 	${CVFUNK_SOURCE_DIR}/src/Tatami.cpp
 	${CVFUNK_SOURCE_DIR}/src/TriDelay.cpp
+	${CVFUNK_SOURCE_DIR}/src/Triton.cpp
     ${CVFUNK_SOURCE_DIR}/src/Tuner.cpp
     ${CVFUNK_SOURCE_DIR}/src/Weave.cpp
     ${CVFUNK_SOURCE_DIR}/src/Wonk.cpp
