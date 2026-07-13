@@ -52,6 +52,11 @@ void init(Plugin* p) {
     p->addModel(modelOnion);
     p->addModel(modelStrata);
     p->addModel(modelTriton);
+    p->addModel(modelAulos);
+    p->addModel(modelGlass);
+    p->addModel(modelHaze);
+    
+
     
     // Any other plugin initialization may go here.
     // As an alternative, consider lazy-loading assets and lookup tables when your module is created to reduce startup times of Rack.
