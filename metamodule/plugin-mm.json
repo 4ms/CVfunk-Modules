@@ -111,6 +111,10 @@
       "name": "Node"
     },
     {
+      "slug": "Weave",
+      "name": "Weave"
+    },
+    {
       "slug": "Wonk",
       "name": "Wonk"
     },
@@ -149,6 +153,18 @@
     {
       "slug": "Alloy",
       "name": "Alloy"
-    }
+    },
+    {
+      "slug": "Aulos",
+      "name": "Aulos"
+    },
+    {
+      "slug": "Glass",
+      "name": "Glass"
+    },
+    {
+      "slug": "Haze",
+      "name": "Haze"
+	}
     ]
 }

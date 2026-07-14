@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 
 if(NOT "${METAMODULE_SDK_DIR}" STREQUAL "")
-	message("METAMODULE_SDK_DIR set by CMake variable ${METAMODULE_SDK_DIR}")
+    message("METAMODULE_SDK_DIR set by CMake variable ${METAMODULE_SDK_DIR}")
 elseif (DEFINED ENV{METAMODULE_SDK_DIR})
     set(METAMODULE_SDK_DIR "$ENV{METAMODULE_SDK_DIR}")
-	message("METAMODULE_SDK_DIR set by environment variable ${METAMODULE_SDK_DIR}")
+    message("METAMODULE_SDK_DIR set by environment variable ${METAMODULE_SDK_DIR}")
 else()
     set(METAMODULE_SDK_DIR "${CMAKE_CURRENT_LIST_DIR}/../metamodule-plugin-sdk")
-	message("METAMODULE_SDK_DIR set to default: ${METAMODULE_SDK_DIR}")
+    message("METAMODULE_SDK_DIR set to default: ${METAMODULE_SDK_DIR}")
 endif()
 
 include(${METAMODULE_SDK_DIR}/plugin.cmake)
@@ -25,16 +25,19 @@ target_sources(CVfunk
     PRIVATE
     ${CVFUNK_SOURCE_DIR}/src/Alloy.cpp
     ${CVFUNK_SOURCE_DIR}/src/Arrange.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Aulos.cpp
     ${CVFUNK_SOURCE_DIR}/src/CVfunkBlank.cpp
     ${CVFUNK_SOURCE_DIR}/src/CVfunkBlank4HP.cpp
-	${CVFUNK_SOURCE_DIR}/src/Cartesia.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Cartesia.cpp
     ${CVFUNK_SOURCE_DIR}/src/Clpy.cpp
     ${CVFUNK_SOURCE_DIR}/src/Collatz.cpp
     ${CVFUNK_SOURCE_DIR}/src/Count.cpp
     ${CVFUNK_SOURCE_DIR}/src/Decima.cpp
     ${CVFUNK_SOURCE_DIR}/src/EnvelopeArray.cpp
     ${CVFUNK_SOURCE_DIR}/src/FlowerPatch.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Glass.cpp
     ${CVFUNK_SOURCE_DIR}/src/Hammer.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Haze.cpp
     ${CVFUNK_SOURCE_DIR}/src/HexMod.cpp
     ${CVFUNK_SOURCE_DIR}/src/Hub.cpp
     ${CVFUNK_SOURCE_DIR}/src/ImpulseController.cpp
@@ -48,27 +51,27 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/PentaSequencer.cpp
     ${CVFUNK_SOURCE_DIR}/src/Picus.cpp
     ${CVFUNK_SOURCE_DIR}/src/PreeeeeeeeeeessedDuck.cpp
-	${CVFUNK_SOURCE_DIR}/src/PressedDuck.cpp
-	${CVFUNK_SOURCE_DIR}/src/Ranges.cpp
+    ${CVFUNK_SOURCE_DIR}/src/PressedDuck.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Ranges.cpp
     ${CVFUNK_SOURCE_DIR}/src/Rat.cpp
-	${CVFUNK_SOURCE_DIR}/src/Signals.cpp
-	${CVFUNK_SOURCE_DIR}/src/StepWave.cpp
-	${CVFUNK_SOURCE_DIR}/src/Steps.cpp
-	${CVFUNK_SOURCE_DIR}/src/Strata.cpp
-	${CVFUNK_SOURCE_DIR}/src/Strings.cpp
-	${CVFUNK_SOURCE_DIR}/src/Syncro.cpp
-	${CVFUNK_SOURCE_DIR}/src/Tatami.cpp
-	${CVFUNK_SOURCE_DIR}/src/TriDelay.cpp
-	${CVFUNK_SOURCE_DIR}/src/Triton.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Signals.cpp
+    ${CVFUNK_SOURCE_DIR}/src/StepWave.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Steps.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Strata.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Strings.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Syncro.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Tatami.cpp
+    ${CVFUNK_SOURCE_DIR}/src/TriDelay.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Triton.cpp
     ${CVFUNK_SOURCE_DIR}/src/Tuner.cpp
     ${CVFUNK_SOURCE_DIR}/src/Weave.cpp
     ${CVFUNK_SOURCE_DIR}/src/Wonk.cpp
 
-	${CVFUNK_SOURCE_DIR}/src/plugin.cpp
+    ${CVFUNK_SOURCE_DIR}/src/plugin.cpp
 )
 
 target_include_directories(CVfunk PRIVATE 
-	${CVFUNK_SOURCE_DIR}/src 
+    ${CVFUNK_SOURCE_DIR}/src 
 )
 
 set_property(TARGET CVfunk PROPERTY CXX_STANDARD 20)
