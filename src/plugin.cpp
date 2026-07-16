@@ -1,13 +1,9 @@
 #include "plugin.hpp"
 
 
-#ifdef METAMODULE_BUILTIN
-extern Plugin* pluginInstance;
-void init_CVfunk(Plugin* p) {
-#else
 Plugin* pluginInstance;
+
 void init(Plugin* p) {
-#endif
 
 	pluginInstance = p;
 
