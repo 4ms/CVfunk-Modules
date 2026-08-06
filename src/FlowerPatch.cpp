@@ -133,7 +133,10 @@ struct FlowerPatch : Module {
         //special aligned memory allocation for FFT using pretty-fast-FFT-aligned-malloc
         audioBuffer = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
         fftOutput   = static_cast<float*>(pffft_aligned_malloc(BUFFER_SIZE * sizeof(float)));
-        
+
+        memset(audioBuffer, 0.f, BUFFER_SIZE);
+        memset(fftOutput, 0.f, BUFFER_SIZE);
+
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configInput(AUDIO_INPUT, "Audio");
 
