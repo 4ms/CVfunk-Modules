@@ -64,6 +64,7 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/TriDelay.cpp
     ${CVFUNK_SOURCE_DIR}/src/Triton.cpp
     ${CVFUNK_SOURCE_DIR}/src/Tuner.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Twang.cpp
     ${CVFUNK_SOURCE_DIR}/src/Weave.cpp
     ${CVFUNK_SOURCE_DIR}/src/Wonk.cpp
 
