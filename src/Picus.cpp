@@ -148,19 +148,19 @@ struct Picus : Module {
             for (size_t i = 0; i < json_array_size(patternJ) && i < PATTERNS; i++) {
                 json_t* val = json_array_get(patternJ, i);
                 if (json_is_integer(val)) {
-                    patternState[i] = json_integer_value(val);
+                    patternState[i] = clamp((int)json_integer_value(val), 0, 2);
                 }
             }
         }
     
         json_t* curStageJ = json_object_get(rootJ, "currentStage");
         if (curStageJ && json_is_integer(curStageJ)) {
-            currentStage = json_integer_value(curStageJ);
+            currentStage = clamp((int)json_integer_value(curStageJ), 0, STAGES - 1);
         }
     
         json_t* selStageJ = json_object_get(rootJ, "selectedStage");
         if (selStageJ && json_is_integer(selStageJ)) {
-            selectedStage = json_integer_value(selStageJ);
+            selectedStage = clamp((int)json_integer_value(selStageJ), 0, STAGES - 1);
         }
     
         json_t* endPulseAtStageJ = json_object_get(rootJ, "endPulseAtStage");
@@ -178,7 +178,8 @@ struct Picus : Module {
             for (size_t i = 0; i < json_array_size(multiplyJ) && i < STAGES; i++) {
                 json_t* val = json_array_get(multiplyJ, i);
                 if (json_is_number(val)) {
-                    multiply[i] = json_number_value(val);
+                    // Matches the 0..99 clamp process() applies to these.
+                    multiply[i] = clamp((float)json_number_value(val), 0.f, 99.f);
                 }
             }
         }
@@ -189,7 +190,7 @@ struct Picus : Module {
             for (size_t i = 0; i < json_array_size(divideJ) && i < STAGES; i++) {
                 json_t* val = json_array_get(divideJ, i);
                 if (json_is_number(val)) {
-                    divide[i] = json_number_value(val);
+                    divide[i] = clamp((float)json_number_value(val), 0.f, 99.f);
                 }
             }
         }
@@ -262,8 +263,8 @@ struct Picus : Module {
 
         // Randomize custom state variables
         for (int i = 0; i < STAGES; ++i) {
-            multiply[i] = random::uniform() * 12.0f;     // 0–32
-            divide[i] = random::uniform() * 8.0f + 1.0;        // 1–9
+            multiply[i] = random::uniform() * 12.0f;     // 0-32
+            divide[i] = random::uniform() * 8.0f + 1.0;        // 1-9
         }
     
         for (int i = 0; i < PATTERNS; ++i) {
@@ -452,7 +453,7 @@ struct Picus : Module {
                 beatTimer.reset();
                 subBeatCount++;
         
-                // Only produce sub-beats for intermediate positions — the last sub-beat is skipped so the stage advance triggers
+                // Only produce sub-beats for intermediate positions - the last sub-beat is skipped so the stage advance triggers
                 if (subBeatCount < multiply[currentStage]) {
                     patternIndex++;
                     if (patternIndex >= patternStages)
@@ -703,6 +704,9 @@ struct PicusWidget : ModuleWidget {
 
     void step() override {
         Picus* module = dynamic_cast<Picus*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
         // Update ratio displays
@@ -797,7 +801,6 @@ struct PicusWidget : ModuleWidget {
             float dim = module->lights[Picus::END_LIGHT].getBrightness();
             module->lights[Picus::END_LIGHT].setBrightness( dim * .8f);
         } 
-        ModuleWidget::step();         
     }  
 
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue) {

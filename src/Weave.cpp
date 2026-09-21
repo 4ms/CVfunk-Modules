@@ -18,6 +18,26 @@
 #include <vector>
 #include <cmath>
 
+// ---------------------------------------------------------------------------
+// Wrap a V/Oct-style voltage to an index in [0, n).
+//
+// The float MUST be bounded before the cast. Converting a NaN or an
+// out-of-int32-range float to int is undefined behaviour, and the two build
+// targets disagree in exactly the way that hides the bug on the machine this
+// is developed on: x86 yields INT_MIN, ARM64 saturates to 0. The `while (i <
+// 0) i += 12;` loops this replaces would then spin ~179 million times on the
+// audio thread on x86 -- a hard stall -- while behaving perfectly on ARM.
+//
+// For every input those loops could actually handle this returns the identical
+// value; it is the same modulo, just written so it cannot run away.
+// ---------------------------------------------------------------------------
+static inline int wrapVoltageIndex(float volts, int n) {
+    if (!std::isfinite(volts)) volts = 0.f;
+    volts = rack::clamp(volts, -1000.f, 1000.f);
+    int i = (int)std::roundf(volts * 12.0f) % n;
+    return (i < 0) ? i + n : i;
+}
+
 // Base frequencies for each guitar string
 const float baseFrequencies[6] =  { -1.6667f, // E2
                                     -1.25f, // A2
@@ -177,11 +197,13 @@ struct Weave : Module {
         0.58333f,    // Maj7 - 5th can work
         0.58333f,    // Min7 - 5th can work
         0.58333f,    // 6 - 5th can work
-        0.41666f,    // Min6 - 3rd can work
+        0.25f,       // Min6 - 3rd can work. Was 0.41666 (5 semitones, a P4),
+                     // which is not in a min6 chord at all: D#m6 plus a G# is
+                     // literally a G#9, and that is what a chord reader saw.
         0.3333f, // 9 - 3rd can also provide a unique flavor
         0.58333f,    // Maj9 - 5th provides stability
         0.58333f,    // Min9 - 5th provides stability
-        0.41666f, // Add9 - 5TH
+        0.58333f, // Add9 - 5TH. Was 0.41666 (5 semitones, a P4); the 5th is 7.
         0.58333f, // Sus2 - 5TH
         0.41666f, // Sus4 - 4TH
         0.58333f,    // 5 - 5th
@@ -205,6 +227,15 @@ struct Weave : Module {
         // --- NEW: input octave tracking flag ---
         json_object_set_new(rootJ, "inputTracksOctaves", json_boolean(inputTracksOctaves));
 
+        // --- Root note state ---
+        // noteValue/playingNotes are not parameters, so the framework will not save
+        // them; persist the selected root note (keyboard latch) explicitly.
+        json_object_set_new(rootJ, "noteValue", json_integer(noteValue));
+        json_t* playingNotesJ = json_array();
+        for (int i = 0; i < 12; i++)
+            json_array_append_new(playingNotesJ, json_boolean(playingNotes[i]));
+        json_object_set_new(rootJ, "playingNotes", playingNotesJ);
+
         return rootJ;
     }
 
@@ -219,7 +250,7 @@ struct Weave : Module {
             for (int i = 0; i < 6; i++) {
                 json_t* valJ = json_array_get(permuteJ, i);
                 if (valJ)
-                    currentPermute[i] = json_integer_value(valJ);
+                    currentPermute[i] = clamp((int)json_integer_value(valJ), 0, 5); // valid permutes are 0..5
             }
         }
 
@@ -231,6 +262,34 @@ struct Weave : Module {
         json_t* inputTracksOctavesJ = json_object_get(rootJ, "inputTracksOctaves");
         if (inputTracksOctavesJ)
             inputTracksOctaves = json_boolean_value(inputTracksOctavesJ);
+
+        // --- Root note state ---
+        json_t* noteValueJ = json_object_get(rootJ, "noteValue");
+        if (noteValueJ) {
+            int loadedNote = json_integer_value(noteValueJ);
+            if (loadedNote >= 0 && loadedNote < 12)
+                noteValue = loadedNote;
+        }
+
+        json_t* playingNotesJ = json_object_get(rootJ, "playingNotes");
+        if (playingNotesJ) {
+            for (int i = 0; i < 12; i++) {
+                json_t* valJ = json_array_get(playingNotesJ, i);
+                if (valJ)
+                    playingNotes[i] = json_boolean_value(valJ);
+            }
+        }
+
+        // Keep the keyboard latch in sync with the saved note: when nothing is latched
+        // (e.g. saved while a polyphonic input had cleared the notes), latch the saved
+        // note so the keyboard display and the noteValue derivation agree on reload.
+        bool anyLatched = false;
+        for (int i = 0; i < 12; i++)
+            if (playingNotes[i]) anyLatched = true;
+        if (!anyLatched && noteValue >= 0 && noteValue < 12) {
+            for (int i = 0; i < 12; i++)
+                playingNotes[i] = (i == noteValue);
+        }
     }
 
     Weave() {
@@ -291,13 +350,18 @@ struct Weave : Module {
             // Update previous connection states
             prevNoteConnected = noteConnected;
 
-            // Check if NOTE_INPUT is connected
-            if (inputs[NOTE_INPUT].isConnected()) {
-                noteInputConnected = true;
-            }
-
             processSkipper = 0;
         }
+
+        // The NOTE input connection is tracked every sample (as with the WEAVE/CHORD/SHIFT
+        // inputs) and in both directions, so an unplug is handled promptly and a stale
+        // "connected" state can never latch the module to C.
+        noteInputConnected = inputs[NOTE_INPUT].isConnected();
+
+        // The octave offset derived from the input is reset every sample and re-applied
+        // only by the connected branch below when octave tracking is on. This keeps a
+        // stale octave from a disconnected CV out of the outputs.
+        inputOctaveOffset = 0.f;
 
         if (noteInputConnected ){
             int inputChannels = inputs[NOTE_INPUT].getChannels();
@@ -307,87 +371,52 @@ struct Weave : Module {
             }
             inputChannels = std::min(inputChannels, 16); // VCV Rack limit
 
-            if (inputChannels == 1) {
-                // Monophonic V/OCT input - treat as a root note + chord
-                inputNotPoly = true;
-
-                // Read the voltage from NOTE_INPUT and quantize it to determine which note to activate
-
-                float noteVoltage = inputs[NOTE_INPUT].getVoltage();
-                int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
-                int octaveOffset = 0;
-
-                if (inputTracksOctaves) {
-                    // Preserve the octave information
-                    octaveOffset = static_cast<int>(std::floor(noteVoltage));
-                    // Make sure we wrap the note index properly to 0–11 range
-                    quantizedNote = ((quantizedNote % 12) + 12) % 12;
-                    inputOctaveOffset = static_cast<float>(octaveOffset);
-                } else {
-                    // Classic behavior – wrap to single octave
-                    while (quantizedNote < 0)
-                        quantizedNote += 12;
-                    while (quantizedNote > 11)
-                        quantizedNote -= 12;
-                    inputOctaveOffset = 0.f;
-                }
-
-                // Update the playingNotes array
-                for (int i = 0; i < 12; i++) {
-                    playingNotes[i] = (i == quantizedNote);
-                }
-
-                noteValue = quantizedNote; // Store the quantized note
-            } else {
-                // Polyphonic V/OCT input - spread notes out over 6 channels
-                inputNotPoly = false;
-
-                // Clear the playingNotes array
-                for (int i = 0; i < 12; i++) {
-                    playingNotes[i] = false;
-                }
-
-                // Number of notes to distribute
-                const int totalNotes = 6;
-
-                // Calculate how many notes each channel should control
-                int notesPerChannel = totalNotes / inputChannels;
-                int extraNotes = totalNotes % inputChannels; // For uneven divisions
-
-                int noteIndex = 0; // Start index for assigning notes
-
-                for (int nt = 0; nt<12; nt++){
-                    playingNotes[nt] = false; //clear out the playing notes
-                }
-
-                // Loop over each channel
-                for (int ch = 0; ch < inputChannels; ch++) {
-                    // Determine the number of notes for this channel
-                    int channelNotes = notesPerChannel + (ch < extraNotes ? 1 : 0);
-
-                    // Read the voltage from the current channel
-                    float noteVoltage = inputs[NOTE_INPUT].getVoltage(ch);
-                    int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
-                    while (quantizedNote < 0)
-                        quantizedNote += 12;
-                    while (quantizedNote > 11)
-                        quantizedNote -= 12;
-
-                    for (int nt = 0; nt<12; nt++){
-                        if (nt == quantizedNote){
-                             playingNotes[nt] = true;
-                        }
-                    }
-
-                    // Assign the quantized note to the assigned notes for this channel
-                    for (int n = 0; n < channelNotes; n++) {
-                        if (noteIndex < totalNotes) {
-                            currentNotes[noteIndex] = static_cast<int>(std::roundf(noteVoltage * 12.0f)) / 12.0f; // Store the quantized note value
-                            noteIndex++;
-                        }
-                    }
+            // The Note input is a mono root source. If the attached source is
+            // polyphonic, read only the top (highest) channel and ignore the lower
+            // ones - the module has a single root, so only the top note applies.
+            int topChannel = 0;
+            // Bound before the cast, as elsewhere in this file.
+            int topAbsNote = static_cast<int>(std::roundf(
+                clamp(inputs[NOTE_INPUT].getVoltage(0), -1000.f, 1000.f) * 12.0f));
+            for (int ch = 1; ch < inputChannels; ch++) {
+                int absNote = static_cast<int>(std::roundf(
+                    clamp(inputs[NOTE_INPUT].getVoltage(ch), -1000.f, 1000.f) * 12.0f));
+                if (absNote > topAbsNote) {
+                    topAbsNote = absNote;
+                    topChannel = ch;
                 }
             }
+
+            // Monophonic V/OCT input - treat as a root note + chord
+            inputNotPoly = true;
+
+            // Read the voltage from NOTE_INPUT (top channel for poly sources) and
+            // quantize it to determine which note to activate
+
+            float noteVoltage = inputs[NOTE_INPUT].getVoltage(topChannel);
+            if (!std::isfinite(noteVoltage)) noteVoltage = 0.f;
+            noteVoltage = clamp(noteVoltage, -1000.f, 1000.f);
+            int quantizedNote = static_cast<int>(std::roundf(noteVoltage * 12.0f));
+            int octaveOffset = 0;
+
+            if (inputTracksOctaves) {
+                // Preserve the octave information
+                octaveOffset = static_cast<int>(std::floor(noteVoltage));
+                // Make sure we wrap the note index properly to 0-11 range
+                quantizedNote = ((quantizedNote % 12) + 12) % 12;
+                inputOctaveOffset = static_cast<float>(octaveOffset);
+            } else {
+                // Classic behavior - wrap to single octave
+                quantizedNote = ((quantizedNote % 12) + 12) % 12;
+                inputOctaveOffset = 0.f;
+            }
+
+            // Update the playingNotes array
+            for (int i = 0; i < 12; i++) {
+                playingNotes[i] = (i == quantizedNote);
+            }
+
+            noteValue = quantizedNote; // Store the quantized note
         } else {
             inputNotPoly = true;
             // Otherwise, use the current active note from the playingNotes array
@@ -410,12 +439,7 @@ struct Weave : Module {
             if (inputs[CHORD_INPUT].isConnected()) {
                 // Read the voltage from CHORD_INPUT and quantize it to determine which chord to activate
                 float chordVoltage = inputs[CHORD_INPUT].getVoltage();
-                chordIndex = static_cast<int>(std::roundf(chordVoltage * 12.0f)); // Quantize to determine the active chord (0-15)
-
-                while (chordIndex < 0)
-                    chordIndex += 16;
-                while (chordIndex > 15)
-                    chordIndex -= 16;
+                chordIndex = wrapVoltageIndex(chordVoltage, 16); // Quantize to determine the active chord (0-15)
 
                 if (chordIndex != prevChordIndex){
                    noteOrChordPressed = true;
@@ -455,20 +479,58 @@ struct Weave : Module {
 
         // GUITAR FINGERING TO SEMITONE SHIFT CALCULATION
         if ( noteOrChordPressed || noteInputConnected){ //only set the value at the time the note is clicked
-            if (chordIndex >= 0 && noteValue >= 0) {
+            // Chord_Chart is 12 x 16 of std::string and Root_Offset1/2 are 16,
+            // all accessed with unchecked operator[]. The lower bound was
+            // already tested; bound the top end too.
+            if (chordIndex >= 0 && chordIndex < 16 && noteValue >= 0 && noteValue < 12) {
                 // Retrieve the chord name and fingering
                 const std::string& fingering = Chord_Chart[noteValue][chordIndex];
 
                 // Convert the fingering to semitone shifts
                 std::array<int, 6> semitoneShifts = fingeringToSemitoneShifts(fingering);
 
+                // Which pitch classes do the FRETTED strings already supply?
+                // Needed before any substitute is chosen -- see below.
+                bool frettedPc[12] = {};
+                for (size_t i = 0; i < 6; i++) {
+                    if (semitoneShifts[i] == -1) continue;
+                    int pc = static_cast<int>(roundf(
+                                 (baseFrequencies[i] + semitoneShifts[i] / 12.0f) * 12.0f));
+                    frettedPc[((pc % 12) + 12) % 12] = true;
+                }
+
                 // Calculate final voltages for each string
+                bool rootPlaced = false;
                 for (size_t i = 0; i < 6; i++) {
                     if (semitoneShifts[i] == -1) {
-                        // String is muted, determine root offset based on chord type
-                        float rootOffset = Root_Offset1[chordIndex];
-                        if (i == 1) { // If more than one string is muted, use Root_Offset2
-                            rootOffset = Root_Offset2[chordIndex];
+                        // Muted string: substitute a note down in the bass register.
+                        //
+                        // Every substitute sits at (root - 2V + offset) no matter
+                        // WHICH string was muted, so the one with the smallest
+                        // offset is the lowest note in the whole chord. Unless the
+                        // first substitute is the root, the chord comes out
+                        // inverted -- and that is where all 26 of the chart's
+                        // accidental inversions came from, every one of them.
+                        //
+                        // But a substitute is sometimes the ONLY place a chord
+                        // tone appears: four of the 9 voicings get their fifth
+                        // from here and nowhere else. Taking the root there would
+                        // trade an inversion for a missing note, which is the
+                        // worse bargain, so those keep their offset and stay
+                        // inverted. The display names them honestly now.
+                        //
+                        // (The second slot keys on the A string specifically, not
+                        // on "more than one string muted" as the old comment here
+                        // claimed.)
+                        float rootOffset = (i == 1) ? Root_Offset2[chordIndex]
+                                                    : Root_Offset1[chordIndex];
+                        if (!rootPlaced) {
+                            int offPc = noteValue + static_cast<int>(roundf(rootOffset * 12.0f));
+                            offPc = ((offPc % 12) + 12) % 12;
+                            if (frettedPc[offPc]) {      // safe to drop -- it is covered
+                                rootOffset = 0.f;
+                                rootPlaced = true;
+                            }
                         }
                         float finalVoltage = (noteValue / 12.0f) - 2 + (octaveState * 1.0f); // Add octave offset based on octave state
                         currentNotes[5-i] = finalVoltage + rootOffset; //reverse the string order, add appropriate rootOffset for muted strings
@@ -589,7 +651,7 @@ struct Weave : Module {
         // Compute the octave based on the lowest note (integer octave range)
         int lowestOctave = static_cast<int>(std::floor(lowestNote));
 
-        // Root is noteValue (0–11) scaled to volts + that octave
+        // Root is noteValue (0-11) scaled to volts + that octave
         float rootVoltage = (noteValue / 12.0f) + lowestOctave + extOffset;
 
         // Clamp for safety
@@ -611,6 +673,24 @@ struct Weave : Module {
         return semitoneShifts;
     }
 };
+
+// Note spelling depends on the chord's quality. G# minor is five sharps and
+// ordinary; Ab minor is seven flats and essentially unwritten -- and for major
+// it reverses, Ab being four flats where G# would be eight. Same one step up
+// with C# minor against Db major. Only those two pitch classes care; Eb, F# and
+// Bb are standard whatever the chord is doing.
+static const char* weaveNoteName(int pc, bool minorish) {
+    static const char* nmMaj[12] = {"C","Db","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
+    static const char* nmMin[12] = {"C","C#","D","Eb","E","F","F#","G","G#","A","Bb","B"};
+    pc = ((pc % 12) + 12) % 12;
+    return minorish ? nmMin[pc] : nmMaj[pc];
+}
+// Chord_Chart column order: Maj Min 7 Maj7 Min7 6 Min6 9 Maj9 Min9 Add9 Sus2
+// Sus4 5 Aug Dim -- the ones carrying a minor third are Min, Min7, Min6, Min9
+// and Dim.
+static bool weaveChordIsMinorish(int ci) {
+    return ci == 1 || ci == 4 || ci == 6 || ci == 9 || ci == 15;
+}
 
 struct WeaveWidget : ModuleWidget {
     DigitalDisplay* noteDisplays[6] = {nullptr};
@@ -785,6 +865,8 @@ struct WeaveWidget : ModuleWidget {
         }
     };
 
+    KeyboardDisplay* keyboardDisplay = nullptr;
+
     WeaveWidget(Weave* module) {
         setModule(module);
         setPanel(createPanel(
@@ -802,28 +884,28 @@ struct WeaveWidget : ModuleWidget {
         float leftW = -9.f;
         addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(45.0+leftW, 42.0f)), module, Weave::WEAVE_KNOB_PARAM));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(55.0+leftW, 42.00)), module, Weave::WEAVE_ATT_PARAM));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(65.0+leftW-1.f, 42.00)), module, Weave::WEAVE_INPUT));
         addParam(createParamCentered<RoundHugeBlackKnob>(mm2px(Vec(23.299+left, 62.14)), module, Weave::CHORD_KNOB_PARAM));
         addLightsAroundKnob(module, mm2px(23.299+left), mm2px(62.14), Weave::CHORD_1_LIGHT, 17, 32.f);
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 13.656)), module, Weave::TRIG_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(8.872, 13.656)), module, Weave::TRIG_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 6.656)), module, Weave::TRIG_BUTTON));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.872, 32.024)), module, Weave::RESET_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(8.872, 32.024)), module, Weave::RESET_INPUT));
         addParam(createParamCentered<TL1105>(mm2px(Vec(8.872, 25.024)), module, Weave::RESET_BUTTON));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(9.193+7, 112.123)), module, Weave::NOTE_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(23.561+7, 112.123)), module, Weave::CHORD_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(37.95+7, 112.123)), module, Weave::SHIFT_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(9.193+7, 112.123)), module, Weave::NOTE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(23.561+7, 112.123)), module, Weave::CHORD_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(37.95+7, 112.123)), module, Weave::SHIFT_INPUT));
         addParam(createParamCentered<Trimpot>(mm2px(Vec(56-7, 73)), module, Weave::SHIFT_KNOB_PARAM));
 
         float right = 4.5f;
         float spacing = 11.0f;
         for (int out=0; out<7; out++){
             if (out==6) spacing +=.5f;
-            addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+out*spacing)), module, Weave::OUTPUT_1+out));
+            addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.642+right, 16.0f+out*spacing)), module, Weave::OUTPUT_1+out));
         }
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+7*12-1)), module, Weave::TRIG_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(62.642+right, 16.0f+8*12)), module, Weave::POLY_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.642+right, 16.0f+7*12-1)), module, Weave::TRIG_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(62.642+right, 16.0f+8*12)), module, Weave::POLY_OUTPUT));
 
 
         //Octave Buttons
@@ -853,7 +935,7 @@ struct WeaveWidget : ModuleWidget {
 
         if (module) {
             // Quantizer display
-            KeyboardDisplay* keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
+            keyboardDisplay = createWidget<KeyboardDisplay>(mm2px(Vec(10.7f-5.f, 87.5f)));
             keyboardDisplay->box.size = mm2px(Vec(50.501f, 16.168f));
             keyboardDisplay->setModule(module);
             addChild(keyboardDisplay);
@@ -919,26 +1001,74 @@ struct WeaveWidget : ModuleWidget {
 
     void step() override {
         Weave* module = dynamic_cast<Weave*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
 
+        // The keyboard keys read module->playingNotes at draw time, and Rack redraws
+        // the self-illuminating (layer 1) pass every frame, so the lit keys always
+        // indicate the note actually being played even when the Root Note CV rewrites
+        // playingNotes at audio rate. No layer invalidation is needed.
+
         int rootNoteVal = 0;
-        std::string rootNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
         if (chordDisplay) {
             for (int i=0; i<17; i++){ //blank all chord lights
                 module->lights[Weave::CHORD_1_LIGHT + i].setBrightness(0.0f);
             }
             if (module->chordIndex >= 0 && module->noteValue >= 0) {
-                // Display the current root note and chord type
-                std::string chordTypeNames[16] = {"Maj", "Min", "7", "Maj7", "Min7", "6", "Min6", "9", "Maj9", "Min9", "Add9", "Sus2", "Sus4", "5", "Aug", "Dim"};
+                // Chord type suffixes, spelled the way MIRAGE spells them so the
+                // two modules never disagree about what a chord is called. Fake
+                // book conventions: 7 not "dom7", m7 not "Min7", maj7 not "M7".
+                //
+                // Two tables because notation forces one difference: a major
+                // triad is "C maj" on its own and "C/E" over a bass, never
+                // "Cmaj/E".
+                static const char* chordSuffix[16] = {
+                    "maj","m","7","maj7","m7","6","m6","9",
+                    "maj9","m9","add9","sus2","sus4","5","aug","dim"
+                };
+                static const char* chordSuffixSlash[16] = {
+                    "","m","7","maj7","m7","6","m6","9",
+                    "maj9","m9","add9","sus2","sus4","5","aug","dim"
+                };
                 rootNoteVal = static_cast<int>(roundf(module->noteValue + 12*module->extOffset));
                 rootNoteVal = (rootNoteVal % 12 + 12) % 12;
-                std::string rootNote = rootNoteNames[rootNoteVal % 12];
-                std::string chordType = chordTypeNames[module->chordIndex % 16];
-                chordDisplay->text = rootNote + " " + chordType;
+                const int ci = module->chordIndex % 16;
+                const bool minorish = weaveChordIsMinorish(ci);
+                std::string rootNote = weaveNoteName(rootNoteVal, minorish);
+
+                // The BASS is the lowest note actually leaving the module, so it
+                // is read from finalNotes (which carry the per-string shifts),
+                // not from the tab. 24 of the 192 chart voicings deliberately put
+                // a chord tone other than the root down there -- see
+                // Root_Offset1/2 -- and the display has never said so.
+                float lo = module->finalNotes[0] + module->extOffset;
+                for (int i = 1; i < 6; i++)
+                    lo = std::min(lo, module->finalNotes[i] + module->extOffset);
+                int bassVal = static_cast<int>(roundf(lo * 12.f));
+                bassVal = (bassVal % 12 + 12) % 12;
+
+                if (bassVal != rootNoteVal)
+                    chordDisplay->text = rootNote + chordSuffixSlash[ci]
+                                       + "/" + weaveNoteName(bassVal, minorish);
+                else
+                    chordDisplay->text = rootNote + " " + chordSuffix[ci];
+
+                // The panel sizes comfortably for 7 characters at 14px; a slash
+                // form can reach 9, so shrink to fit rather than run off the
+                // rounded rect. Same calibration as Mirage's root display.
+                {
+                    const float kInnerPx = 60.f, kMono = 0.602f, kBase = 14.f;
+                    int n = (int)chordDisplay->text.size();
+                    if (n < 1) n = 1;
+                    chordDisplay->setFontSize(clamp(kInnerPx / ((float)n * kMono), 8.f, kBase));
+                }
                 module->lights[Weave::CHORD_2_LIGHT + module->chordIndex].setBrightness(1.0f);
             } else {
                 // Default display if no chord or note is active
                 chordDisplay->text = "Oct";
+                chordDisplay->setFontSize(14.f);   // undo any shrink from a slash form
                 module->lights[Weave::CHORD_1_LIGHT].setBrightness(1.0f);
             }
         }
@@ -954,9 +1084,12 @@ struct WeaveWidget : ModuleWidget {
                 int semitone = std::roundf(fractionalPart * 12);
                 semitone = (semitone % 12 + 12) % 12;
 
-                // Note names
-                const char* noteNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-                const char* noteName = noteNames[semitone];
+                // Spelled for the chord these notes belong to, so the string
+                // displays and the chord display never disagree -- a G# minor
+                // voicing should not read "Ab" on one and "G#" on the other.
+                const char* noteName = weaveNoteName(
+                    semitone,
+                    module->chordIndex >= 0 && weaveChordIsMinorish(module->chordIndex % 16));
 
                 // Format full note display
                 char fullNote[7];
@@ -981,7 +1114,6 @@ struct WeaveWidget : ModuleWidget {
             module->lights[Weave::OCTAVE_UP_LIGHT].setBrightness(0.0f);
             module->lights[Weave::OCTAVE_DOWN_LIGHT].setBrightness(0.0f);
         }
-        ModuleWidget::step(); 
     }
     DigitalDisplay* createDigitalDisplay(Vec position, std::string initialValue, float fontSize) {
         DigitalDisplay* display = new DigitalDisplay();

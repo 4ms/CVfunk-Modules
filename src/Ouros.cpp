@@ -11,6 +11,7 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
+#include <cmath>
 using simd::float_4;
 
 const float twoPi = 2.0f * M_PI;
@@ -141,7 +142,7 @@ struct Ouros : Module {
             for (int i = 0; i < 16; i++) {
                 json_t* valueJ = json_array_get(eatValueArrayJ, i);
                 if (valueJ) {
-                    eatValue[i] = json_real_value(valueJ);
+                    eatValue[i] = clamp((float)json_real_value(valueJ), -10.f, 10.f);
                 }
             }
         }
@@ -420,10 +421,28 @@ struct Ouros : Module {
             // --- Compute waveform ---
             simd::float_4 outputValues = simd::clamp(simd::sin(phases * twoPiVec) * 5.f, -5.f, 5.f);
     
+            // Non-finite recovery. oscOutput feeds back into NodePosition, so a
+            // single NaN reaching it poisons the loop permanently and this voice
+            // goes silent until the module is re-instantiated. Rewind the phase
+            // accumulators and the feedback tap for this channel instead.
+            bool phaseBad = false;
+            for (int i = 0; i < 4; i++)
+                if (!std::isfinite(outputValues[i]) || !std::isfinite(oscPhase[c][i]))
+                    phaseBad = true;
+            if (phaseBad) {
+                for (int i = 0; i < 4; i++) {
+                    oscPhase[c][i]     = 0.f;
+                    lastoscPhase[c][i] = 0.f;
+                    oscOutput[c][i]    = 0.f;
+                }
+                if (outputs[L_OUTPUT + 0].isConnected()) outputs[L_OUTPUT + 0].setVoltage(0.f, c);
+                if (outputs[L_OUTPUT + 1].isConnected()) outputs[L_OUTPUT + 1].setVoltage(0.f, c);
+            } else {
             for (int i = 0; i < 4; i++) {
                 oscOutput[c][i] = outputValues[i];
                 if (i < 2)
                     outputs[L_OUTPUT + i].setVoltage(oscOutput[c][i], c);
+            }
             }
     
             lastoscPhase[c][2] = oscPhase[c][2];
@@ -477,7 +496,7 @@ struct PolarXYDisplay : TransparentWidget {
     static constexpr float twoPi = 2.0f * M_PI; // Precomputed constant for 2π
 
     // Draws a static polar sine preview when no module is loaded (library / browser).
-    // A pure sine maps to a perfect circle in polar space — clean and recognisable.
+    // A pure sine maps to a perfect circle in polar space - clean and recognisable.
     void drawDummySine(const DrawArgs& args) {
         centerX    = box.size.x / 2.0f;
         centerY    = box.size.y / 2.0f;
@@ -485,7 +504,7 @@ struct PolarXYDisplay : TransparentWidget {
 
         const int N = 256;
 
-        // Orange trace (L) — full circle
+        // Orange trace (L) - full circle
         nvgBeginPath(args.vg);
         for (int i = 0; i <= N; i++) {
             float theta = ((float)i / N) * twoPi;
@@ -500,7 +519,7 @@ struct PolarXYDisplay : TransparentWidget {
         nvgStrokeWidth(args.vg, 1.0f);
         nvgStroke(args.vg);
 
-        // Blue trace (R) — quarter-phase offset so the two traces are visible
+        // Blue trace (R) - quarter-phase offset so the two traces are visible
         nvgBeginPath(args.vg);
         for (int i = 0; i <= N; i++) {
             float theta = ((float)i / N) * twoPi;

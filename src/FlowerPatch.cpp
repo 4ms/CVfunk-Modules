@@ -118,7 +118,8 @@ struct FlowerPatch : Module {
         // Load the state of visualizerMode
         json_t* visualizerModeJ = json_object_get(rootJ, "visualizerMode");
         if (visualizerModeJ) {
-            visualizerMode = static_cast<VisualizerMode>(json_integer_value(visualizerModeJ));
+            // Casting an out-of-range integer to a 3-value enum is undefined.
+            visualizerMode = static_cast<VisualizerMode>(clamp((int)json_integer_value(visualizerModeJ), 0, 2));
         }                
     }
 
@@ -405,7 +406,7 @@ struct FlowerDisplay : TransparentWidget {
         if (!module) drawDummy(args);
     }
 
-    // Self-contained flower preview — mirrors the live FLOWER_MODE draw loop
+    // Self-contained flower preview - mirrors the live FLOWER_MODE draw loop
     // exactly, but uses locally-computed C4 sine data instead of module state.
     void drawDummy(const DrawArgs& args) {
         const float twoPi      = 2.0f * float(M_PI);
@@ -450,7 +451,7 @@ struct FlowerDisplay : TransparentWidget {
                     float angle  = twoPi * ((float)i / (sr / freq));
                     float radius = maxRadius * (0.5f + 0.5f * sample * (0.5f / maxVal));
 
-                    // FFT intensity — same formula as live code
+                    // FFT intensity - same formula as live code
                     float fftI = (1.f - FFTknob) + FFTknob * clamp(intensity[flowerIdx], 0.f, 1.f);
                     radius = std::min(radius * fftI, maxRadius);
 

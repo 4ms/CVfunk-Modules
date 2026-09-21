@@ -477,19 +477,25 @@ struct Aulos : Module {
         auto gr = [&](const char* k, float d) -> float {
             json_t* j = json_object_get(root, k);
             return j ? (float)json_number_value(j) : d; };
+        // Ranges match the context-menu sliders, which clamp on set.
+        // decayValue is the important one: sharedDecayGain is 0.80 + 0.17*decay,
+        // so anything above 1 puts the waveguide's loop gain over unity and the
+        // bore diverges instead of ringing down.
         droneActive   = gb("droneActive",  false);
         aulosTrack    = gb("aulosTrack",   false);
-        followTime    = gr("followTime",   0.25f);
-        attackCurve   = gr("attackCurve",  0.3f);
-        releaseCurve  = gr("releaseCurve", -0.5f);
-        waveguideGain = gr("waveguideGain",1.4f);
-        decayValue    = gr("decayValue",   0.9f);
-        attackValue   = gr("attackValue",  0.3f);
-        releaseValue  = gr("releaseValue", 0.5f);
-        vibratoRate        = gr("vibratoRate",        5.0f);
-        vibratoBreathDepth = gr("vibratoBreathDepth", 0.5f);
+        followTime    = clamp(gr("followTime",   0.25f),  0.f,  1.f);
+        attackCurve   = clamp(gr("attackCurve",  0.3f),  -1.f,  1.f);
+        releaseCurve  = clamp(gr("releaseCurve", -0.5f), -1.f,  1.f);
+        waveguideGain = clamp(gr("waveguideGain",1.4f),   0.f,  1.75f);
+        decayValue    = clamp(gr("decayValue",   0.9f),   0.f,  1.f);
+        attackValue   = clamp(gr("attackValue",  0.3f),   0.f,  1.f);
+        releaseValue  = clamp(gr("releaseValue", 0.5f),   0.f,  1.f);
+        vibratoRate        = clamp(gr("vibratoRate",        5.0f), 3.f, 12.f);
+        vibratoBreathDepth = clamp(gr("vibratoBreathDepth", 0.5f), 0.f,  1.f);
         legatoEnabled = gb("legatoEnabled", false);
-        legatoTime    = gr("legatoTime",   60.f);
+        // Fallback default was 60ms; the declaration, onReset and the menu
+        // slider all say 20ms, so a patch predating this key glided 3x slow.
+        legatoTime    = clamp(gr("legatoTime",   20.f),   5.f, 80.f);
     }
 
     // ── DSP helper: process one voice, one sample ─────────────────────────────
@@ -1502,7 +1508,7 @@ struct PipeDisplay : TransparentWidget {
                 const float airReserve = rowH * 0.7f;
 
                 float lWidth = W * 0.5f - airReserve;
-                // Reserve right-edge space for air lines — they extend past the
+                // Reserve right-edge space for air lines - they extend past the
                 // bell exit, so cap rWidth so the longest line stays in bounds.
                 // airReserve scales with rowH since line length is proportional
                 // to bellH which is proportional to rowH.
@@ -1569,7 +1575,7 @@ struct PipeDisplay : TransparentWidget {
         const float tubeW   = bw - margin * 2.f;
         const float centerY = by + bh * 0.5f;
 
-        // Narrower tube — better aspect ratio.
+        // Narrower tube - better aspect ratio.
         const float baseH = bh * 0.28f;
 
         // Bore changes the pipe silhouette 
@@ -1620,7 +1626,7 @@ struct PipeDisplay : TransparentWidget {
 
         float boreEnd = clamp(activeFraction, 0.05f, 1.f);
 
-        // RMS drives the brightness floor — tube glows even at low breath.
+        // RMS drives the brightness floor - tube glows even at low breath.
         float brightness = 0.15f + 0.85f * fmaxf(rms * 4.f, breath);
 
         const int N = 64;
@@ -1674,7 +1680,7 @@ struct PipeDisplay : TransparentWidget {
 
         // ── Air lines ─────────────────────────────────────────────────────────
         // Field-line style bezier curves at bell exit. Middle line is longest,
-        // outer lines shorter. Gentle outward curve — not radial. 9 lines total:
+        // outer lines shorter. Gentle outward curve - not radial. 9 lines total:
         // inner 5 driven by air, outer 4 only active during chiff. Flutter with time.
         {
             float bellX    = tubeX + tubeW;
@@ -1698,7 +1704,7 @@ struct PipeDisplay : TransparentWidget {
                 }
                 if (lineActive < 0.02f) continue;
 
-                // Vertical position at bell — symmetric above/below center.
+                // Vertical position at bell - symmetric above/below center.
                 float ySign   = ((float)i < centerIdx) ? -1.f : (i > centerIdx ? 1.f : 0.f);
                 float yOffset = bellH * tAbs * 0.95f * ySign;
 
@@ -1956,8 +1962,12 @@ struct AulosWidget : ModuleWidget {
             std::string getDisplayValueString() override {
                 return string::f("%.3f", val ? *val : def); }
         };
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
         auto addFSlider = [&](float* v, float lo, float hi, float def, std::string lbl) {
-            auto* sl = new ui::Slider();
+            auto* sl = new OwnedSlider();
             sl->quantity   = new FloatQ(v, lo, hi, def, lbl);
             sl->box.size.x = 200.f;
             menu->addChild(sl);

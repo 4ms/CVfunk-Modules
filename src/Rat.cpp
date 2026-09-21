@@ -269,6 +269,9 @@ struct RatWidget : ModuleWidget {
 
     void step() override {
         Rat* module = dynamic_cast<Rat*>(this->module);
+        // Step children before the null-module early return so slider lights
+        // and other child widgets still update in the module library view.
+        ModuleWidget::step();
         if (!module) return;
     
         if (ratioDisplay) {      
@@ -298,7 +301,6 @@ struct RatWidget : ModuleWidget {
         }
         
         module->lights[Rat::LOCK_BUTTON_LIGHT].setBrightness(module->CVlock ? 1.0f : 0.0f );
-        ModuleWidget::step(); 
     }    
 
     // Generic Quantity for any float member 
@@ -331,13 +333,19 @@ struct RatWidget : ModuleWidget {
     void appendContextMenu(Menu* menu) override {
         ModuleWidget::appendContextMenu(menu);
         Rat* m = dynamic_cast<Rat*>(module);
-        assert(m);
+        // Not assert(): the Rack SDK builds without -DNDEBUG, so a failed cast
+        // would abort the host rather than just skipping the menu.
+        if (!m) return;
 
         menu->addChild(new MenuSeparator());
         menu->addChild(createMenuLabel("Ratio Non-Linearity"));
     
         // Non-Linearity
-        auto* spanSlider = new ui::Slider();
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
+        auto* spanSlider = new OwnedSlider();
         spanSlider->quantity = new FloatMemberQuantity(m, &Rat::expo,
             "Non-Linearity", 1.f, 5.f, 5.f, 1);
         spanSlider->box.size.x = 200.f;

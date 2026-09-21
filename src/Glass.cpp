@@ -213,6 +213,13 @@ struct Glass : Module {
     static float foldVoct(float voct) {
         const float lo = -1.0f;   // C3
         const float hi =  2.0f;   // C6
+        // Bound the input first. Nothing stops an upstream module from putting
+        // Inf or a huge value on V/Oct, and these loops never terminate on Inf
+        // and run ~1e30 times on 1e30 -- an infinite loop on the audio thread,
+        // which freezes the host. +-20V is far outside any real V/Oct, so every
+        // musical input folds exactly as before.
+        if (!std::isfinite(voct)) voct = 0.f;
+        voct = rack::clamp(voct, -20.f, 20.f);
         while (voct < lo)  voct += 1.f;
         while (voct > hi)  voct -= 1.f;
         return voct;
@@ -236,6 +243,16 @@ struct Glass : Module {
     }
 
     void initBowls(float sr) {
+        // Prime the per-channel V/oct cache with a value no jack can produce.
+        // Zero-initialised, the "has this channel's pitch changed?" test below
+        // reads false for a first note at exactly 0V (C4, which is what a
+        // MIDI-CV module emits for middle C) and the channel kept the
+        // zero-initialised bowl index 0 -- C3. The first C4 played on a fresh
+        // module sounded an octave low until the pitch moved.
+        for (int ch = 0; ch < GLASS_MAX_POLY; ++ch) {
+            cachedVoctForChannel[ch] = -999.f;
+            cachedBowlForChannel[ch] = 0;
+        }
         for (int b = 0; b < GLASS_BOWLS; ++b) {
             bowls[b].init(sr, voct2freq(BOWL_VOCT[b]), b);
             bowls[b].baseDelaySamples = sr / voct2freq(BOWL_VOCT[b]);
@@ -301,9 +318,12 @@ struct Glass : Module {
         configOutput(AUDIO_L_OUTPUT, "Audio L");
         configOutput(AUDIO_R_OUTPUT, "Audio R");
         configOutput(ENV_OUTPUT,     "Envelope (RMS)");
+        // initBowlVoct() FIRST: initBowls() reads BOWL_VOCT to tune each bowl,
+        // and on the first Glass instance that table is still all zeros if it
+        // is filled afterwards -- every bowl would be seeded at C4.
+        initBowlVoct();
         initBowls(48000.f);
         envFollower.setCoeff(sqrtf(150.f * 5000.f) / 48000.f, 0.4f, 48000.f);
-        initBowlVoct();
     }
 
     void onSampleRateChange() override {
@@ -339,12 +359,17 @@ struct Glass : Module {
             json_t* j = json_object_get(root, k);
             return j ? (float)json_number_value(j) : d;
         };
-        attackValue  = gr("attackValue",  0.15f);
-        releaseValue = gr("releaseValue", 0.35f);
-        attackCurve  = gr("attackCurve",  0.3f);
-        releaseCurve = gr("releaseCurve", -0.3f);
-        noiseCutoffMax      = gr("noiseCutoffMax",     1000.f);
-        dampGateIntensity   = gr("dampGateIntensity",  0.8f);
+        // Ranges match the context-menu sliders, which clamp on set.
+        // Unclamped these reach powf/expf directly: an out-of-range
+        // noiseCutoffMax makes expf overflow and poisons the shared excitation
+        // noise filter for every bowl, and an out-of-range attackValue makes
+        // powf(2000, x) infinite so the envelope never leaves its attack.
+        attackValue  = clamp(gr("attackValue",  0.15f),  0.f,  1.f);
+        releaseValue = clamp(gr("releaseValue", 0.35f),  0.f,  1.f);
+        attackCurve  = clamp(gr("attackCurve",  0.3f),  -1.f,  1.f);
+        releaseCurve = clamp(gr("releaseCurve", -0.3f), -1.f,  1.f);
+        noiseCutoffMax      = clamp(gr("noiseCutoffMax",    1000.f), 100.f, 4000.f);
+        dampGateIntensity   = clamp(gr("dampGateIntensity", 0.8f),     0.f,    1.f);
     }
 
     void process(const ProcessArgs& args) override {
@@ -605,7 +630,10 @@ struct Glass : Module {
                 cachedAttackCoeff, cachedReleaseCoeff);
 
             bool bowlAudible = (state.envOut > 0.0001f) || (bowlEnergy[b] > idleThreshold);
-            if (!bowlAudible) continue;
+            // Zero the scratch before skipping, as the energy pass below
+            // documents: leaving last sample's value here feeds a stale
+            // magnitude into the attack side of the envelope.
+            if (!bowlAudible) { bowlRawAbs[b] = 0.f; continue; }
 
             // FM delay length and sinePhaseInc are cached sub-rate (updated only
             // when FM changes), so nothing to recompute per sample here.
@@ -728,114 +756,116 @@ struct BowlDisplay : Widget {
         if (animPhase >= 1.f) animPhase -= 1.f;
     }
 
-    void draw(const DrawArgs& args) override {
-        const float W  = box.size.x;
-        const float H  = box.size.y;
+    void drawLayer(const DrawArgs& args, int layer) override {
+        if (layer == 1) { // Self-illuminating layer
+            const float W  = box.size.x;
+            const float H  = box.size.y;
 
-        // Largest bowl (C3, b=0): radius = H * 0.42 (full height).
-        // Smallest bowl (C6, b=36): radius = half the largest.
-        const float rMax = H * 0.35f;
-        const float rMin = rMax * 0.5f;
+            // Largest bowl (C3, b=0): radius = H * 0.42 (full height).
+            // Smallest bowl (C6, b=36): radius = half the largest.
+            const float rMax = H * 0.35f;
+            const float rMin = rMax * 0.5f;
 
-        // Left padding = rMax + extra margin so C3 circle has breathing room.
-        // Right padding = rMax (C6 is small so it fits with less clearance).
-        const float leftPad  = rMax + rMax * 0.2f;
-        const float usableW  = W - leftPad - rMax;
-        const float step     = usableW / (float)(GLASS_BOWLS - 1);
-        const float cy       = H * 0.5f;
+            // Left padding = rMax + extra margin so C3 circle has breathing room.
+            // Right padding = rMax (C6 is small so it fits with less clearance).
+            const float leftPad  = rMax + rMax * 0.2f;
+            const float usableW  = W - leftPad - rMax;
+            const float step     = usableW / (float)(GLASS_BOWLS - 1);
+            const float cy       = H * 0.5f;
 
-        nvgBeginPath(args.vg);
-        nvgRoundedRect(args.vg, 0, 0, W, H, 3.f);
-        nvgFillColor(args.vg, nvgRGB(12, 12, 14));
-        nvgFill(args.vg);
-
-        for (int b = 0; b < GLASS_BOWLS; ++b) {
-            float cx = leftPad + b * step;
-
-            // Radius decreases linearly from C3 (large) to C6 (small).
-            float t  = (float)b / (float)(GLASS_BOWLS - 1);  // 0=C3, 1=C6
-            float r  = rMax + t * (rMin - rMax);
-
-            float energy = module
-                         ? clamp(module->bowlEnergy[b] * 6.f, 0.f, 1.f)
-                         : 0.f;
-
-            // Black keys: C#, D#, F#, G#, A# within each octave.
-            // These get a gold outline to distinguish them visually.
-            int semitone = b % 12;
-            bool isBlack = (semitone == 1 || semitone == 3 ||
-                            semitone == 6 || semitone == 8 || semitone == 10);
-
-            // Base fill.
             nvgBeginPath(args.vg);
-            nvgCircle(args.vg, cx, cy, r);
-            nvgFillColor(args.vg, nvgRGBAf(0.10f, 0.11f, 0.18f, 1.f));
+            nvgRoundedRect(args.vg, 0, 0, W, H, 3.f);
+            nvgFillColor(args.vg, nvgRGB(12, 12, 14));
             nvgFill(args.vg);
 
-            // Rotating linear gradient sheen
-            {
-                float bowlOffset  = (float)b * 0.6180339f * 2.f * float(M_PI);
-                float sheenAngle  = animPhase * 2.f * float(M_PI) + bowlOffset;
-                float dx = cosf(sheenAngle) * r;
-                float dy = sinf(sheenAngle) * r;
+            for (int b = 0; b < GLASS_BOWLS; ++b) {
+                float cx = leftPad + b * step;
 
-                const float sheenAlpha = 0.25f;  // Tune: 0.1=very subtle, 0.4=prominent
-                NVGpaint grad = nvgLinearGradient(args.vg,
-                    cx - dx, cy - dy,   // light end
-                    cx + dx, cy + dy,   // dark end
-                    nvgRGBAf(0.35f, 0.38f, 0.55f, sheenAlpha),   // light tint
-                    nvgRGBAf(0.04f, 0.04f, 0.08f, sheenAlpha));  // dark tint
+                // Radius decreases linearly from C3 (large) to C6 (small).
+                float t  = (float)b / (float)(GLASS_BOWLS - 1);  // 0=C3, 1=C6
+                float r  = rMax + t * (rMin - rMax);
 
+                float energy = module
+                             ? clamp(module->bowlEnergy[b] * 6.f, 0.f, 1.f)
+                             : 0.f;
+
+                // Black keys: C#, D#, F#, G#, A# within each octave.
+                // These get a gold outline to distinguish them visually.
+                int semitone = b % 12;
+                bool isBlack = (semitone == 1 || semitone == 3 ||
+                                semitone == 6 || semitone == 8 || semitone == 10);
+
+                // Base fill.
                 nvgBeginPath(args.vg);
                 nvgCircle(args.vg, cx, cy, r);
-                nvgFillPaint(args.vg, grad);
+                nvgFillColor(args.vg, nvgRGBAf(0.10f, 0.11f, 0.18f, 1.f));
                 nvgFill(args.vg);
-            }
 
-            // Gold dashed ring on black keys, rotating at the axis spin rate.
-            // Each bowl gets a fixed angular offset based on its index using the
-            // golden ratio, so no two bowls are ever in phase with each other.
-            if (isBlack) {
-                const int   nDashes      = 1; //reduced for visual simplicity
-                const float dashFraction = 0.95f;
-                const float sectorAngle  = 2.f * float(M_PI) / (float)nDashes;
-                const float dashAngle    = sectorAngle * dashFraction;
+                // Rotating linear gradient sheen
+                {
+                    float bowlOffset  = (float)b * 0.6180339f * 2.f * float(M_PI);
+                    float sheenAngle  = animPhase * 2.f * float(M_PI) + bowlOffset;
+                    float dx = cosf(sheenAngle) * r;
+                    float dy = sinf(sheenAngle) * r;
 
-                // Base rotation from widget-side animPhase -- always advances
-                // at frame rate regardless of DSP dormancy.
-                float baseRot = animPhase * 2.f * float(M_PI);
+                    const float sheenAlpha = 0.25f;  // Tune: 0.1=very subtle, 0.4=prominent
+                    NVGpaint grad = nvgLinearGradient(args.vg,
+                        cx - dx, cy - dy,   // light end
+                        cx + dx, cy + dy,   // dark end
+                        nvgRGBAf(0.35f, 0.38f, 0.55f, sheenAlpha),   // light tint
+                        nvgRGBAf(0.04f, 0.04f, 0.08f, sheenAlpha));  // dark tint
 
-                float bowlOffset = (float)b * 0.6180339f * 2.f * float(M_PI);
-                float rotOffset  = baseRot + bowlOffset;
-
-                nvgStrokeColor(args.vg, nvgRGBAf(0.82f, 0.65f, 0.15f, 0.7f));
-                nvgStrokeWidth(args.vg, 1.0f);
-
-                for (int d = 0; d < nDashes; ++d) {
-                    float startAngle = rotOffset + (float)d * sectorAngle;
-                    float endAngle   = startAngle + dashAngle;
                     nvgBeginPath(args.vg);
-                    nvgArc(args.vg, cx, cy, r - 0.5f, startAngle, endAngle, NVG_CW);
-                    nvgStroke(args.vg);
+                    nvgCircle(args.vg, cx, cy, r);
+                    nvgFillPaint(args.vg, grad);
+                    nvgFill(args.vg);
                 }
-            }
 
-            // Active glow: color interpolates hot (active) -> cold (decaying).
-            if (energy > 0.005f) {
-                // Tune hotR/G/B and coldR/G/B for color palette.
-                // Current: deep blue active -> warm orange decaying.
-                const float hotR = 0.15f, hotG = 0.55f, hotB = 1.00f;
-                const float coldR= 0.90f, coldG= 0.40f, coldB= 0.10f;
-                float hot  = energy;
-                float cold = 1.f - energy;
-                float rv = hot * hotR + cold * coldR;
-                float gv = hot * hotG + cold * coldG;
-                float bv = hot * hotB + cold * coldB;
+                // Gold dashed ring on black keys, rotating at the axis spin rate.
+                // Each bowl gets a fixed angular offset based on its index using the
+                // golden ratio, so no two bowls are ever in phase with each other.
+                if (isBlack) {
+                    const int   nDashes      = 1; //reduced for visual simplicity
+                    const float dashFraction = 0.95f;
+                    const float sectorAngle  = 2.f * float(M_PI) / (float)nDashes;
+                    const float dashAngle    = sectorAngle * dashFraction;
 
-                nvgBeginPath(args.vg);
-                nvgCircle(args.vg, cx, cy, r);
-                nvgFillColor(args.vg, nvgRGBAf(rv, gv, bv, energy * 0.95f));
-                nvgFill(args.vg);
+                    // Base rotation from widget-side animPhase -- always advances
+                    // at frame rate regardless of DSP dormancy.
+                    float baseRot = animPhase * 2.f * float(M_PI);
+
+                    float bowlOffset = (float)b * 0.6180339f * 2.f * float(M_PI);
+                    float rotOffset  = baseRot + bowlOffset;
+
+                    nvgStrokeColor(args.vg, nvgRGBAf(0.82f, 0.65f, 0.15f, 0.7f));
+                    nvgStrokeWidth(args.vg, 1.0f);
+
+                    for (int d = 0; d < nDashes; ++d) {
+                        float startAngle = rotOffset + (float)d * sectorAngle;
+                        float endAngle   = startAngle + dashAngle;
+                        nvgBeginPath(args.vg);
+                        nvgArc(args.vg, cx, cy, r - 0.5f, startAngle, endAngle, NVG_CW);
+                        nvgStroke(args.vg);
+                    }
+                }
+
+                // Active glow: color interpolates hot (active) -> cold (decaying).
+                if (energy > 0.005f) {
+                    // Tune hotR/G/B and coldR/G/B for color palette.
+                    // Current: deep blue active -> warm orange decaying.
+                    const float hotR = 0.15f, hotG = 0.55f, hotB = 1.00f;
+                    const float coldR= 0.90f, coldG= 0.40f, coldB= 0.10f;
+                    float hot  = energy;
+                    float cold = 1.f - energy;
+                    float rv = hot * hotR + cold * coldR;
+                    float gv = hot * hotG + cold * coldG;
+                    float bv = hot * hotB + cold * coldB;
+
+                    nvgBeginPath(args.vg);
+                    nvgCircle(args.vg, cx, cy, r);
+                    nvgFillColor(args.vg, nvgRGBAf(rv, gv, bv, energy * 0.95f));
+                    nvgFill(args.vg);
+                }
             }
         }
     }
@@ -1018,8 +1048,12 @@ struct GlassWidget : ModuleWidget {
                 return string::f("%.3f", val ? *val : def);
             }
         };
+        // ui::Slider does not delete `quantity` in its destructor; this subclass does.
+        struct OwnedSlider : ui::Slider {
+            ~OwnedSlider() { delete quantity; quantity = nullptr; }
+        };
         auto addFSlider = [&](float* v, float lo, float hi, float def, std::string lbl) {
-            auto* sl = new ui::Slider();
+            auto* sl = new OwnedSlider();
             sl->quantity   = new FloatQ(v, lo, hi, def, lbl);
             sl->box.size.x = 200.f;
             menu->addChild(sl);

@@ -72,7 +72,7 @@ struct Onion : Module {
         // Load prevPolarity
         json_t* jp = json_object_get(rootJ, "prevPolarity");
         if (jp)
-            prevPolarity = json_number_value(jp);
+            prevPolarity = clamp((float)json_number_value(jp), 0.f, 1.f);
     }
     
     Onion() {
@@ -255,7 +255,7 @@ struct OnionWidget : ModuleWidget {
                 //No polyphony on MM, so no need to rename the layer tooltips.
             #else
                 if (module->outputLayers == 0 || startLayer == endLayer) {
-                    // Single layer Ñ just show it
+                    // Single layer â€“ just show it
                     label = "Layer " + std::to_string(endLayer);
                 } else if (endLayer > startLayer) {
                     // Normal range without wrap

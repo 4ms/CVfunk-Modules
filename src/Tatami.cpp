@@ -11,6 +11,7 @@
 
 #include "rack.hpp"
 #include "plugin.hpp"
+#include <cmath>
 using namespace rack;
 
 template<typename T, size_t Size>
@@ -99,6 +100,9 @@ struct SecondOrderHPF {
         b2 = (1 - alpha) / a;
     }
 
+    // Rewind the delay lines, keeping the coefficients.
+    void reset() { x1 = x2 = y1 = y2 = 0.f; }
+
     // Process the input sample
     float process(float input) {
         float output = a0 * input + a1 * x1 + a2 * x2 - b1 * y1 - b2 * y2;
@@ -127,6 +131,10 @@ public:
             signal = decimatingFilter.process(signal);
         }
         return signal;
+    }
+    void reset() {
+        interpolatingFilter.reset();
+        decimatingFilter.reset();
     }
 private:
     virtual float processShape(float) = 0;
@@ -448,6 +456,20 @@ struct Tatami : Module {
                 outputR[c] = shaperR[c].process(outputR[c]);
             }
 
+            // Non-finite recovery. The clamps below turn a NaN into +10V, which
+            // hides it from the port but leaves it in the ADAA memory, the HPF
+            // delay lines, the oversampling shaper and the envelope follower --
+            // the channel then sits at +10V for good. Check first, and rewind
+            // the recursive state that produced it.
+            if (!std::isfinite(outputL[c]) || !std::isfinite(outputR[c])) {
+                outputL[c] = outputR[c] = 0.f;
+                lastOutputL = lastOutputR = 0.f;
+                hpfL[c].reset();          hpfR[c].reset();
+                shaperL[c].reset();       shaperR[c].reset();
+                filteredEnvelopeL[c] = 0.f; filteredEnvelopeR[c] = 0.f;
+                envPeakL[c] = 0.f;          envPeakR[c] = 0.f;
+            }
+
             outputL[c] = clamp(outputL[c], -10.0f, 10.0f);
             outputR[c] = clamp(outputR[c], -10.0f, 10.0f);
 
@@ -655,15 +677,15 @@ struct TatamiWidget : ModuleWidget {
         addChild(createWidget<ThemedScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ThemedScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242, 69.353)), module, Tatami::SHAPE_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242, 69.353)), module, Tatami::SHAPE_INPUT));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918, 69.353)), module, Tatami::SHAPE_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.926, 69.353)), module, Tatami::SHAPE_PARAM));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242, 84.386)), module, Tatami::COMPRESS_INPUT));     
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242, 84.386)), module, Tatami::COMPRESS_INPUT));     
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918, 84.386)), module, Tatami::COMPRESS_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.926, 84.386)), module, Tatami::COMPRESS_PARAM));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242,  99.62)), module, Tatami::SYMMETRY_INPUT));     
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242,  99.62)), module, Tatami::SYMMETRY_INPUT));     
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918,  99.62)), module, Tatami::SYMMETRY_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.926, 99.62)), module, Tatami::SYMMETRY_PARAM));
      
@@ -671,14 +693,14 @@ struct TatamiWidget : ModuleWidget {
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(27.918, 114.25)), module, Tatami::DENSITY_ATT_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(68.752, 114.25)), module, Tatami::DENSITY_PARAM2));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.815, 114.252)), module, Tatami::DENSITY_INPUT1));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.242, 114.252)), module, Tatami::DENSITY_INPUT2));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.815, 114.252)), module, Tatami::DENSITY_INPUT1));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(19.242, 114.252)), module, Tatami::DENSITY_INPUT2));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.815, 57.326)), module, Tatami::AUDIO_L_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.815, 70.756)), module, Tatami::AUDIO_R_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.815, 57.326)), module, Tatami::AUDIO_L_INPUT));
+        addInput(createInputCentered<ThemedPJ301MPort>(mm2px(Vec(6.815, 70.756)), module, Tatami::AUDIO_R_INPUT));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(69.152, 57.326)), module, Tatami::AUDIO_L_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(69.152, 70.756)), module, Tatami::AUDIO_R_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(69.152, 57.326)), module, Tatami::AUDIO_L_OUTPUT));
+        addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(69.152, 70.756)), module, Tatami::AUDIO_R_OUTPUT));
 
         // Create and add the WaveDisplay
         WaveDisplay* waveDisplay = createWidget<WaveDisplay>(mm2px(Vec(7.981, 12.961))); // Positioning
