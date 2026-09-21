@@ -649,6 +649,8 @@ struct TwangBridgeAdmittanceSIMD {
 struct TwangStringSIMD {
     static constexpr int LANES = 4;
     static constexpr int DISPERSION_STAGES = 2;
+    // Shortest allowed span, in samples. See the P clamp in process().
+    static constexpr float MIN_SPAN = 2.5f;
 
     // How long a plucked lane's bow stays off the string before it re-grips
     // (and how long the junction stays parked at the pluck point).
@@ -933,7 +935,15 @@ struct TwangStringSIMD {
         //    of where the junction sits.
         total                 = rack::simd::fmax(total, float_4(4.f));
         totalSegmentSamples   = total;
-        float_4 P             = rack::simd::clamp(junctionPos, float_4(0.01f), float_4(0.99f));
+        // Keep BOTH spans longer than 2 samples. The 4-point Lagrange read
+        // taps base-1..base+2, and base+2 is only already-written when the
+        // delay is > 2 samples; any shorter and it reads the slot about to be
+        // overwritten -- a sample from a whole buffer ago -- which makes the
+        // loop unstable. At high pitch (total ~16-25 samples) the bow/pluck
+        // position extremes put one span at 1-2 samples. Clamping P instead
+        // of the read length keeps the pitch exact.
+        float_4 minP          = rack::simd::fmin(float_4(MIN_SPAN) / total, float_4(0.5f));
+        float_4 P             = rack::simd::clamp(junctionPos, minP, float_4(1.f) - minP);
         segALen = total * P;
         segCLen = total * (float_4(1.f) - P);
 

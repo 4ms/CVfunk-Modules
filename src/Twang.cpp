@@ -1008,6 +1008,24 @@ struct Twang : Module {
         sumQuad.store(sumArr);
         float voiceSum = sumArr[0] + sumArr[1] + sumArr[2] + sumArr[3];
 
+        // Catch a runaway here, BEFORE the DC blocker and drive. The drive's
+        // clamp (fmin/fmax) turns NaN/Inf into a finite rail value, so the
+        // output-stage check below never fires; meanwhile the DC blocker and
+        // the string rails stay NaN forever and the module goes silent.
+        // Spare lanes are masked by multiplication (NaN * 0 = NaN), so this
+        // also catches a non-finite lane that isn't sounding.
+        // The magnitude test matters as much as the finite one: a runaway
+        // string sits at a huge but FINITE level (1e19+) long before it goes
+        // Inf, and the gain stages after this overflow it to Inf inside the
+        // DC blocker. The per-string limiter holds a healthy string under
+        // ~30, so even 16 voices at the ceiling stay far below this.
+        if (!std::isfinite(voiceSum) || fabsf(voiceSum) > 1e4f) {
+            panic();
+            outputs[OUT_L].setVoltage(0.f);
+            outputs[OUT_R].setVoltage(0.f);
+            return;
+        }
+
         // Keep the summed level roughly constant as voices are added, so a
         // 6-note chord isn't six times louder than a single note.
         //
