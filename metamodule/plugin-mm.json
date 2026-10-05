@@ -169,6 +169,14 @@
     {
       "slug": "Twang",
       "name": "Twang"
+    },
+    {
+      "slug": "HotPot",
+      "name": "HotPot"
+    },
+    {
+      "slug": "Mala",
+      "name": "Mala"
 	}
-    ]
+  ]
 }

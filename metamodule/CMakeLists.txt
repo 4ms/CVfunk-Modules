@@ -39,9 +39,11 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/Hammer.cpp
     ${CVFUNK_SOURCE_DIR}/src/Haze.cpp
     ${CVFUNK_SOURCE_DIR}/src/HexMod.cpp
+    ${CVFUNK_SOURCE_DIR}/src/HotPot.cpp
     ${CVFUNK_SOURCE_DIR}/src/Hub.cpp
     ${CVFUNK_SOURCE_DIR}/src/ImpulseController.cpp
     ${CVFUNK_SOURCE_DIR}/src/JunkDNA.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Mala.cpp
     ${CVFUNK_SOURCE_DIR}/src/Magnets.cpp
     ${CVFUNK_SOURCE_DIR}/src/Morta.cpp
     ${CVFUNK_SOURCE_DIR}/src/Node.cpp
