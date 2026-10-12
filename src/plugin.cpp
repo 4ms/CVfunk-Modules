@@ -55,8 +55,8 @@ void init(Plugin* p) {
     p->addModel(modelHotPot);
 #if !defined(METAMODULE)
     p->addModel(modelMala);
-#endif
-    
+    p->addModel(modelFuzzy);
+    p->addModel(modelVega);
     
 
     

@@ -1,7 +1,7 @@
 {
   "slug": "CVfunk",
   "name": "CV funk Modules",
-  "version": "2.0.53",
+  "version": "2.0.54",
   "license": "MIT",
   "brand": "CV funk",
   "author": "Cody Geary",
@@ -447,6 +447,28 @@
         "Oscillator",
         "Polyphonic"
       ]
-    }    
+    },
+    {
+      "slug": "Fuzzy",
+      "name": "Fuzzy",
+      "description": "Eight classic fuzz and overdrive pedals simulated from their schematics, with a guitar volume knob for clean-up and a battery knob that drains the circuit until it sputters out.",
+      "tags": [
+        "Distortion",
+        "Effect",
+        "Hardware clone"
+      ]
+    },
+    {
+      "slug": "Vega",
+      "name": "Vega",
+      "description": "Bass pedal synthesizer modelled on a classic 1970s transistor-ladder design.",
+      "tags": [
+        "Oscillator",
+        "Polyphonic",
+        "Filter",
+        "Synth voice",
+        "Hardware clone"
+      ]
+    }
   ]
 }

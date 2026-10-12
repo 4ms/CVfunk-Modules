@@ -30,7 +30,7 @@ static const int RAIL_SOURCES  = 32;                      // 16 channels on A + 
 static const int RAIL_GROUPS   = RAIL_SOURCES / 4;        // float_4 groups per rail
 static const int TOTAL_SOURCES = NUM_RAILS * RAIL_SOURCES;
 
-static const int CONTROL_DIV   = 64;    // samples between geometry / coefficient updates (gains ramp across it)
+static const int CONTROL_DIV   = 32;    // samples between geometry / coefficient updates
 static const int DISPLAY_DIV   = 512;   // samples between display snapshots
 
 // =============================================================================
@@ -38,16 +38,18 @@ static const int DISPLAY_DIV   = 512;   // samples between display snapshots
 // =============================================================================
 static constexpr float HEAD_RADIUS_M        = 0.0875f;  // ITD range and shadow corner
 static constexpr float SPEED_OF_SOUND       = 343.f;    // m/s
-static constexpr float ITD_BUFFER_SEC       = 0.004f;   // far-ear delay ceiling, covers natural ITD with Spice widening
+static constexpr float HAAS_MAX_SEC         = 0.060f;   // far-ear delay ceiling at the widest Haas setting
+// Context menu Haas settings, 0 = natural ITD .. 1 = HAAS_MAX_SEC.
+static const float HAAS_AMOUNTS[4] = { 0.f, 0.33f, 0.66f, 1.f };
 static constexpr float PROPAGATION_MAX_SEC  = 0.250f;   // Doppler delay cap
 // Doppler is the propagation delay changing, and its pitch shift is the
 // source's speed over the speed of sound. Sources in a room move at walking
 // pace, so the delay is followed smoothly (DOPPLER_SMOOTH_SEC) and its rate of
 // change is capped at DOPPLER_MAX_SPEED: 0.8 m/s, an unhurried performer, is at
 // most about 4 cents. The ear-to-ear delays have their own cap (ITD_MAX_CENTS
-// of pitch at either ear), except that a full sweep of the widest
-// (Spice-widened) ITD may take no less than ITD_MIN_SWEEP_SEC. Together they
-// stay within about 6 cents.
+// of pitch at either ear), except that a full sweep of the widest Haas
+// setting may take no less than ITD_MIN_SWEEP_SEC. Together they stay within
+// about 6 cents.
 // Fast motion, stepped glides and slider jumps all stay within that.
 static constexpr float DOPPLER_MAX_SPEED    = 0.8f;     // m/s
 static constexpr float ITD_MAX_CENTS        = 2.f;
@@ -59,19 +61,9 @@ static constexpr float SHADOW_ALPHA_MIN     = 0.1f;     // Brown-Duda shadow dep
 static constexpr float SHADOW_THETA_SCALE   = 180.f / 150.f;  // 180 deg / theta_min (150 deg)
 static constexpr float SHADOW_ALPHA_LOW     = 0.01f;    // clamp for exaggerated shadow
 static constexpr float SHADOW_ALPHA_HIGH    = 4.f;
-// Front colour after Blauert's directional bands: a presence lift near 4 kHz
-// and a gentle low-mid lift read as "in front". The broad 8 kHz region reads
-// as "overhead", so it is kept out of the presence band, and an ear-level
-// pinna notch near 8 kHz is added in front and at the sides instead.
-static constexpr float FRONT_PEAK_HZ        = 4000.f;   // front presence lift
-static constexpr float FRONT_PEAK_Q         = 1.4f;
+static constexpr float FRONT_PEAK_HZ        = 3000.f;   // front presence bump
+static constexpr float FRONT_PEAK_Q         = 0.7f;
 static constexpr float FRONT_PEAK_DB        = 3.f;      // per 100% CUES
-static constexpr float FRONT_LOW_HZ         = 400.f;    // front low-mid lift
-static constexpr float FRONT_LOW_Q          = 1.0f;
-static constexpr float FRONT_LOW_DB         = 1.5f;     // per 100% CUES
-static constexpr float EAR_NOTCH_HZ         = 8000.f;   // ear-level pinna notch
-static constexpr float EAR_NOTCH_Q          = 3.f;
-static constexpr float EAR_NOTCH_DB         = -6.f;     // per 100% CUES, front and sides
 static constexpr float REAR_SHELF_HZ        = 4000.f;   // rear shelf corner up to CUES = 100%
 static constexpr float REAR_SHELF_HZ_LOW    = 1500.f;   // rear shelf corner at CUES = 300%
 static constexpr float REAR_SHELF_DB        = -8.f;     // per 100% CUES
@@ -94,8 +86,12 @@ static constexpr float SPICE_ITD_WIDEN      = 1.0f;
 // Tunable constants -- geometry and motion
 // =============================================================================
 static constexpr float RING_RADIUS_M        = 4.f;      // at 1x; also the unity-gain distance
-static constexpr float STAGE_DISTANCE_M     = 8.f;      // stage line distance in front, at 1x
+static constexpr float STAGE_DISTANCE_M     = 6.f;      // stage line distance in front, at 1x
 static constexpr float RAIL_HALF_LENGTH_M   = 12.f;     // stage half-width, at 1x
+// Shabu and Fan placement is linear out to this fraction of the rail, then
+// eases into the ends: a source one full rail half from center sits at about
+// 90%, and nothing ever reaches the very end. Lower pads earlier and softer.
+static constexpr float RAIL_EDGE_KNEE       = 0.6f;
 // Fan: two tracks, one each side, that diverge from narrow behind the
 // listener to wide in front. They never meet, and pass about 6.9 m from the
 // listener at 1x, so nothing crosses the head.
@@ -107,9 +103,7 @@ static constexpr float SCENE_SCALE_MIN      = 0.25f;    // SIZE = 0
 static constexpr float SCENE_SCALE_RANGE    = 40.f;     // SIZE = 1 -> 0.25 * 40 = 10x
 static constexpr float MOVE_OFF             = 0.01f;    // MOVE at or below this is off
 static constexpr float MOVE_RATE_MIN_HZ     = 0.01f;
-static constexpr float MOVE_RATE_RANGE      = 50.f;     // exponential over the whole knob: 0.01 Hz .. 0.5 Hz
-static constexpr float RAIL_MIN_TRAVEL      = 0.3f;     // sweep travel kept free at any Spread, as a share of the half rail
-static constexpr float RAIL_MIN_BREATHE     = 0.5f;     // Shabu mirrored: the closed width is at most (1 - this) of the open width
+static constexpr float MOVE_RATE_RANGE      = 700.f;    // exponential over the whole slider: 0.01 Hz .. 7 Hz (Leslie fast is ~6-7 Hz)
 static constexpr float MOTION_STEPS         = 8.f;      // steps per cycle in stepped shape
 static constexpr float STEP_GLIDE_FRACTION  = 0.2f;     // share of each step spent gliding to the next
 static constexpr float MOTION_FADE_SEC      = 0.5f;     // motion fade in/out when MOVE turns on or off
@@ -117,9 +111,12 @@ static constexpr float MODE_FADE_SEC        = 0.3f;     // parallel <-> mirrored
 static constexpr float SKIM_SEC             = 0.15f;    // how fast Skim settles everything home
 static constexpr float MUTE_FADE_SEC        = 0.010f;   // mute fade, so muting never clicks
 static constexpr float DELAY_SLEW_SEC       = 0.020f;   // ear-tap delay smoothing
+// Position and spread (knob and CV) are smoothed before placement, so knob
+// drags, which arrive in UI-rate steps, and stepped CVs move a source rather
+// than jump it. Longer is softer on steps but rounds off fast deliberate
+// pan modulation; 10 ms passes LFO motion well into the audio range.
+static constexpr float POSITION_SMOOTH_SEC  = 0.010f;
 static constexpr float LEVEL_RELEASE_SEC    = 0.050f;   // display level follower release
-static constexpr float DISPLAY_REF_VOLTS    = 5.f;      // dot level that reads as full size
-static constexpr float DISPLAY_RANGE_DB     = 36.f;     // dB below the reference where dots bottom out
 static constexpr float GAIN_SLEW_SEC        = 0.050f;   // source-count and main gain smoothing
 
 // =============================================================================
@@ -142,12 +139,10 @@ static constexpr float ROOM_DAMP_RANGE      = 20.f;     // 1 kHz .. 20 kHz
 static constexpr float ROOM_DECAY_DARKEN    = 0.2f;     // loop cutoff multiplier at DECAY = 1 (Haze 2k/10k)
 static constexpr float ROOM_LOOP_SAT_KNEE   = 7.f;      // HazeLoopSat constants
 static constexpr float ROOM_LOOP_SAT_WIDTH  = 10.5f;
-static constexpr float ROOM_WET_GAIN        = 7.f;      // tank output level; sets the wet/dry balance range of ROOM
-static constexpr float ROOM_LENGTH_SLEW_SEC = 0.050f;
-// The tank sleeps once nothing is sent and its tail has faded below
-// ROOM_SLEEP_LEVEL (about -110 dB) for ROOM_SLEEP_SEC, and wakes on the next send.
-static constexpr float ROOM_SLEEP_LEVEL     = 1e-5f;
-static constexpr float ROOM_SLEEP_SEC       = 0.1f;
+static constexpr float ROOM_WET_GAIN        = 3.5f;     // tank output level; sets the wet/dry balance range of ROOM
+static constexpr float ROOM_LENGTH_SLEW_SEC = 0.050f;   // glide time for loop, allpass and pre-delay lengths and loop feedback
+static constexpr float ROOM_GLIDE_SNAP_SAMPLES  = 1e-3f;  // a gliding allpass length this close lands on its whole-sample target
+static constexpr float ROOM_GLIDE_SNAP_FEEDBACK = 1e-6f;  // likewise for loop feedback
 // The tank runs at half the engine rate, which halves its cost. The band it
 // carries is limited to ROOM_BAND of the half rate (9.6 kHz at 48 kHz), in the
 // manner of classic hardware reverbs; its own damping sits below that anyway.
@@ -181,9 +176,8 @@ static const float ROOM_MOD_SIN[ROOM_LOOPS] = { 0.f,  0.8660254f,  0.8660254f, 0
 // =============================================================================
 // Tunable constants -- mix bus
 // =============================================================================
-// Output soft clip after the tube stage: linear below the knee, rounding
-// into a 10.5 V ceiling. Rare peaks are shaped here instead of being
-// answered with a gain change.
+// Output safety limiter after the tube stage: linear below the knee, soft
+// into a 10.5 V ceiling. Only reached by extreme levels.
 static constexpr float BUS_SAT_KNEE         = 8.f;
 static constexpr float BUS_SAT_WIDTH        = 3.75f;    // ceiling = knee + 2 * width / 3
 
@@ -203,48 +197,25 @@ static constexpr float TUBE_DRIVE_MAX_DB    = 20.f;
 static constexpr float TUBE_BIAS_MAX        = 0.35f;
 static constexpr float TUBE_MAKEUP_REF_V    = 5.f;
 static constexpr float TUBE_WARM_HZ         = 7000.f;
-// At or below unity Simmer the tube is bypassed (it is all but linear there);
-// it fades in over TUBE_FADE_SEC as soon as drive is asked for.
-static constexpr float TUBE_FADE_SEC        = 0.02f;
 
-// Headroom, planned ahead rather than chasing the audio:
-//   1. Each track shares one voice's worth of energy among the channels that
-//      carry signal: gain 1 / sqrt(active count). A channel counts fully once
-//      its peak reaches ACTIVE_FULL_V and partly below that. Peaks are held
-//      through note tails (ACTIVE_RELEASE_SEC), and the gain glides: down
-//      over NORM_DOWN_SEC as voices enter, back up over NORM_UP_SEC as they leave.
-//   2. MIX_TRIM fixes the bus level so three busy tracks at unity sit well
-//      below the output soft clip, leaving room for voices clustering in pan
-//      or identical signals lining up.
-//   3. A slow RMS leveler eases sustained overload down by at most
-//      LEVELER_MAX_DB. It is too slow to react to a momentary peak.
-//   4. The room input has its own trim, so the tank runs below its loop
-//      limiters; it still rides its loop level, slowly, as a backstop.
-static constexpr float ACTIVE_FULL_V        = 0.5f;     // peak at which a channel counts as one whole voice
-static constexpr float ACTIVE_RELEASE_SEC   = 0.3f;
-static constexpr float NORM_DOWN_SEC        = 0.01f;    // fast, so a full cable at patch load is tamed at once
-static constexpr float NORM_UP_SEC          = 1.0f;
-// Warm-up at load, reset or a sample rate change: silent for WARMUP_HOLD_SEC
-// while the channel counts are measured, then an eased fade to full level over
-// WARMUP_FADE_SEC, applied at the output only. During the hold every
-// smoothed control (Simmer, mutes, modes, normalization) jumps straight to its
-// setting instead of gliding there from its power-on value, and the leveler
-// starts fully down (LEVELER_MAX_DB) and releases up once it has measured the mix.
-static constexpr float WARMUP_HOLD_SEC      = 0.02f;
-static constexpr float WARMUP_FADE_SEC      = 2.0f;     // the fade follows a squared curve, so it eases in
-static constexpr float MIX_TRIM             = 0.7f;     // fixed bus level, -3 dB
-static constexpr float LEVELER_THRESHOLD_V  = 3.5f;     // RMS, about a 5 V peak sine
-static constexpr float LEVELER_RATIO        = 3.f;
-static constexpr float LEVELER_MAX_DB       = 6.f;
-static constexpr float LEVELER_RMS_SEC      = 0.3f;
-static constexpr float LEVELER_ATTACK_SEC   = 0.3f;
-static constexpr float LEVELER_RELEASE_SEC  = 1.5f;
-static constexpr float LEVELER_FAST_OVER_DB = 6.f;      // past this much over, the leveler attacks fast
-static constexpr float LEVELER_FAST_SEC     = 0.03f;
-static constexpr float ROOM_INPUT_TRIM      = 0.5f;     // ROOM_WET_GAIN is raised to match, so the wet balance holds
+// Headroom. Three stages, all automatic:
+//   1. Anticipation: the source sum is scaled by 1 / sqrt(1 + HEADROOM_PER_SOURCE * (N - 1)),
+//      about -3 dB per doubling once N is large, nothing for a few sources.
+//   2. The room's input rides its own loop level, so a crowded pot does not
+//      pile energy into the tank (ROOM_TARGET_V and its follower).
+//   3. A soft-knee peak compressor on the mix, ahead of Simmer, holds the sum
+//      near 5 V. Its gain is ramped linearly across each control block, so the
+//      control rate never shows up as ripple. Simmer's drive then works on a
+//      predictable level.
+static constexpr float HEADROOM_PER_SOURCE  = 0.1f;
+static constexpr float MIX_THRESHOLD_V      = 5.f;      // compressor threshold
+static constexpr float MIX_RATIO            = 6.f;
+static constexpr float MIX_KNEE_DB          = 6.f;
+static constexpr float MIX_ATTACK_SEC       = 0.005f;
+static constexpr float MIX_RELEASE_SEC      = 0.300f;
 static constexpr float ROOM_TARGET_V        = 3.5f;     // loop peak the room input is ridden to hold (loop knee is 7 V)
-static constexpr float ROOM_ATTACK_SEC      = 0.050f;
-static constexpr float ROOM_RELEASE_SEC     = 2.0f;
+static constexpr float ROOM_ATTACK_SEC      = 0.020f;
+static constexpr float ROOM_RELEASE_SEC     = 1.0f;
 static constexpr float LEVEL_UNITY_POS      = 0.75f;    // stage level slider position for unity; gain = (x / pos)^2
 
 // HAZE is one control for diffusion and loop modulation: diffusion rises
@@ -331,22 +302,14 @@ struct HotPotDelay {
         // rather than the slot about to be overwritten.
         delaySamples = clamp(delaySamples, MIN_TAP_DELAY, (float)mask - 4.f);
         float readPos   = (float)writeIndex - delaySamples;
-        float readFloor = floorf(readPos);
-        int   base      = ((int)readFloor) & mask;
-        float frac      = readPos - readFloor;
+        // floor() without a library call (ARMv7 has no floor instruction):
+        // truncate, then step down for negative non-integers. Exact.
+        int   whole     = (int)readPos;
+        if ((float)whole > readPos) --whole;
+        int   base      = whole & mask;
+        float frac      = readPos - (float)whole;
         return glassLagrange(buf[(base - 1) & mask], buf[base],
                              buf[(base + 1) & mask], buf[(base + 2) & mask], frac);
-    }
-
-    // Two-point read, for the room: its loops are damped and diffused well
-    // below the band where linear interpolation dulls anything.
-    float readLinear(float delaySamples) const {
-        delaySamples = clamp(delaySamples, 1.f, (float)mask - 2.f);
-        float readPos   = (float)writeIndex - delaySamples;
-        float readFloor = floorf(readPos);
-        int   base      = ((int)readFloor) & mask;
-        float frac      = readPos - readFloor;
-        return buf[base] + frac * (buf[(base + 1) & mask] - buf[base]);
     }
 
     void clear() {
@@ -369,10 +332,14 @@ struct HotPotAllpass {
         index = 0;
     }
 
-    // delayLength must be 1..mask (set that way by HotPotRoom::setParams and
-    // init's buffer sizing); feedGain is 1 - g * g, computed once per sample.
-    float process(float input, int delayLength, float g, float feedGain) {
-        float delayed = buf[(index - delayLength) & mask];
+    // The delay is whole + frac samples, with whole + 1 kept within the buffer
+    // by HotPotRoom::setParams and init's sizing. The fractional (linear) read
+    // is only compiled in for a gliding room; a settled room reads whole
+    // samples exactly. feedGain is 1 - g * g, computed once per sample.
+    template <bool fractional>
+    float process(float input, int whole, float frac, float g, float feedGain) {
+        float delayed = buf[(index - whole) & mask];
+        if (fractional) delayed += frac * (buf[(index - whole - 1) & mask] - delayed);
         float out     = delayed - g * input;
         buf[index]    = feedGain * input + g * delayed;
         index         = (index + 1) & mask;
@@ -421,16 +388,22 @@ struct HotPotVoiceDelay {
     inline float_4 tap(float_4 delaySamples) const {
         const float_4 clamped   = simd::clamp(delaySamples, float_4(MIN_TAP_DELAY), float_4((float)mask - 4.f));
         const float_4 readPos   = float_4((float)writeIndex) - clamped;
-        float_4 readFloor       = simd::floor(readPos);
-        const float_4 t         = readPos - readFloor;
 
-        float floorLanes[4];
-        readFloor.store(floorLanes);
+        // Exact floor in integer lanes: truncate, then step down where
+        // truncation rounded a negative position up. ARMv7 NEON has no
+        // vector floor, so simd::floor would fall back to four floorf calls.
+        const __m128i truncated = _mm_cvttps_epi32(readPos.v);
+        const __m128i roundedUp = _mm_castps_si128(_mm_cmplt_ps(readPos.v, _mm_cvtepi32_ps(truncated)));
+        const __m128i floorInt  = _mm_add_epi32(truncated, roundedUp);   // the mask is -1 where true
+        const float_4 t         = readPos - float_4(_mm_cvtepi32_ps(floorInt));
+
+        int32_t floorLanes[4];
+        _mm_storeu_si128((__m128i*)floorLanes, floorInt);
         const float* base = buf.data();
-        const __m128 row0 = _mm_loadu_ps(base + 0 * stride + (((int)floorLanes[0] - 1) & mask));
-        const __m128 row1 = _mm_loadu_ps(base + 1 * stride + (((int)floorLanes[1] - 1) & mask));
-        const __m128 row2 = _mm_loadu_ps(base + 2 * stride + (((int)floorLanes[2] - 1) & mask));
-        const __m128 row3 = _mm_loadu_ps(base + 3 * stride + (((int)floorLanes[3] - 1) & mask));
+        const __m128 row0 = _mm_loadu_ps(base + 0 * stride + ((floorLanes[0] - 1) & mask));
+        const __m128 row1 = _mm_loadu_ps(base + 1 * stride + ((floorLanes[1] - 1) & mask));
+        const __m128 row2 = _mm_loadu_ps(base + 2 * stride + ((floorLanes[2] - 1) & mask));
+        const __m128 row3 = _mm_loadu_ps(base + 3 * stride + ((floorLanes[3] - 1) & mask));
         const __m128 low01  = _mm_unpacklo_ps(row0, row1);
         const __m128 low23  = _mm_unpacklo_ps(row2, row3);
         const __m128 high01 = _mm_unpackhi_ps(row0, row1);
@@ -462,25 +435,23 @@ struct HotPotVoiceDelay {
 
 // -----------------------------------------------------------------------------
 // HotPotVoiceGroup -- all per-sample state for four sources.
-// Gains ramp linearly across each control block; delays slew per sample.
+// Gains and filter coefficients ramp linearly across each control block;
+// delays slew per sample.
 // -----------------------------------------------------------------------------
 struct HotPotVoiceGroup {
     HotPotVoiceDelay delay;
     bool active = false;
 
     float_4 airState  = float_4(0.f), airCoeff = float_4(0.f);
+    float_4 airStep   = float_4(0.f);   // per-sample ramp of airCoeff across the control block
 
-    // Front/back tone: fixed filters, per-source gains. Three bands
-    // (bandpass, TDF2 state: 0 presence, 1 low-mid, 2 ear notch) are added or
-    // taken away; highs (x minus two one-pole lowpasses) are taken away
-    // behind. Only the gains move with the source, ramped like the ear gains,
-    // so motion never steps a filter coefficient.
-    float_4 bandZ1[3] = { float_4(0.f), float_4(0.f), float_4(0.f) };
-    float_4 bandZ2[3] = { float_4(0.f), float_4(0.f), float_4(0.f) };
-    float_4 bandGain[3]     = { float_4(0.f), float_4(0.f), float_4(0.f) };   // band gain - 1
-    float_4 bandGainStep[3] = { float_4(0.f), float_4(0.f), float_4(0.f) };
-    float_4 rearLow1 = float_4(0.f), rearLow2 = float_4(0.f);
-    float_4 rear     = float_4(0.f), rearStep     = float_4(0.f);   // highs gain - 1
+    // Front/back tone biquad, transposed direct form II.
+    float_4 toneB0 = float_4(1.f), toneB1 = float_4(0.f), toneB2 = float_4(0.f);
+    float_4 toneA1 = float_4(0.f), toneA2 = float_4(0.f);
+    float_4 toneZ1 = float_4(0.f), toneZ2 = float_4(0.f);
+    // Per-sample ramps of the tone coefficients across the control block.
+    float_4 toneStepB0 = float_4(0.f), toneStepB1 = float_4(0.f), toneStepB2 = float_4(0.f);
+    float_4 toneStepA1 = float_4(0.f), toneStepA2 = float_4(0.f);
 
     float_4 delayL = float_4(MIN_TAP_DELAY), delayR = float_4(MIN_TAP_DELAY);
     float_4 delayTargetL = float_4(MIN_TAP_DELAY), delayTargetR = float_4(MIN_TAP_DELAY);
@@ -495,18 +466,22 @@ struct HotPotVoiceGroup {
     // Head shadow one-pole/one-zero per ear: y = b0 x + b1 x1 - a1 y1.
     float_4 shadowB0L = float_4(1.f), shadowB1L = float_4(0.f), shadowA1L = float_4(0.f);
     float_4 shadowB0R = float_4(1.f), shadowB1R = float_4(0.f), shadowA1R = float_4(0.f);
+    // Per-sample ramps of the shadow zero (the pole only moves with Spice).
+    float_4 shadowStepB0L = float_4(0.f), shadowStepB1L = float_4(0.f);
+    float_4 shadowStepB0R = float_4(0.f), shadowStepB1R = float_4(0.f);
     float_4 shadowInL = float_4(0.f), shadowOutL = float_4(0.f);
     float_4 shadowInR = float_4(0.f), shadowOutR = float_4(0.f);
 
     float_4 levelGain = float_4(0.f);   // distance gain, for the display follower
     float_4 level     = float_4(0.f);
-    float_4 activity  = float_4(0.f);   // input peak follower, for the active channel count
 
     void resetState() {
         delay.clear();
-        airState = float_4(0.f);
-        for (int k = 0; k < 3; ++k) bandZ1[k] = bandZ2[k] = bandGain[k] = bandGainStep[k] = float_4(0.f);
-        rearLow1 = rearLow2 = rear = rearStep = float_4(0.f);
+        airState = airStep = float_4(0.f);
+        toneB0 = float_4(1.f); toneB1 = toneB2 = toneA1 = toneA2 = float_4(0.f);
+        toneZ1 = toneZ2 = float_4(0.f);
+        toneStepB0 = toneStepB1 = toneStepB2 = toneStepA1 = toneStepA2 = float_4(0.f);
+        shadowStepB0L = shadowStepB1L = shadowStepB0R = shadowStepB1R = float_4(0.f);
         delayL = delayR = delayTargetL = delayTargetR = float_4(MIN_TAP_DELAY);
         propagation = propagationTarget = float_4(0.f);
         snapPropagation = true;
@@ -515,7 +490,7 @@ struct HotPotVoiceGroup {
         shadowB0L = shadowB0R = float_4(1.f);
         shadowB1L = shadowB1R = shadowA1L = shadowA1R = float_4(0.f);
         shadowInL = shadowOutL = shadowInR = shadowOutR = float_4(0.f);
-        levelGain = level = activity = float_4(0.f);
+        levelGain = level = float_4(0.f);
     }
 };
 
@@ -528,17 +503,28 @@ struct HotPotVoiceGroup {
 struct HotPotRoom {
     HotPotDelay   preDelayL, preDelayR;
     HotPotAllpass diffuserL[ROOM_AP_STAGES], diffuserR[ROOM_AP_STAGES];
-    int            diffuserLength[2][ROOM_AP_STAGES] = {};
 
     HotPotDelay   loopDelay[ROOM_LOOPS];
     HotPotAllpass loopAllpass[ROOM_LOOPS][ROOM_AP_STAGES];
-    int            loopAllpassLength[ROOM_LOOPS][ROOM_AP_STAGES] = {};
+
+    // Allpass lengths in samples, one row of four stages per loop (rows
+    // 0..5), then the left and right diffusers (rows 6 and 7). Targets are
+    // whole samples; the lengths glide to them as float_4 rows, and each
+    // row's whole and fractional parts are kept ready for the reads.
+    static const int AP_ROWS = ROOM_LOOPS + 2;
+    float_4 allpassLength[AP_ROWS] = {};
+    float_4 allpassTarget[AP_ROWS] = {};
+    int32_t allpassWhole[AP_ROWS][ROOM_AP_STAGES] = {};
+    float   allpassFrac[AP_ROWS][ROOM_AP_STAGES]  = {};
     GlassDCBlocker loopDcBlock[ROOM_LOOPS];
     HotPotSat     loopSat[ROOM_LOOPS];
     float          loopDampState[ROOM_LOOPS]    = {};
     float          loopLength[ROOM_LOOPS]       = {};
     float          loopLengthTarget[ROOM_LOOPS] = {};
     float          loopFeedback[ROOM_LOOPS]     = {};
+    float          loopFeedbackTarget[ROOM_LOOPS] = {};
+    bool           lengthsGliding  = false;   // allpass lengths on their way to target
+    bool           feedbackGliding = false;   // loop feedback on its way to target
 
     float preDelayLength = 0.f, preDelayTarget = 0.f;
     float dampCoeff       = 0.f;
@@ -615,22 +601,50 @@ struct HotPotRoom {
         const float loopBaseMs = ROOM_LOOP_MIN_MS * powf(ROOM_LOOP_RANGE, sizeKnob);
         const float apScale    = loopBaseMs / ROOM_AP_REF_LOOP_MS * sr / ROOM_AP_REF_SR;
         const float decaySec   = 0.12f + 11.88f * decayKnob * decayKnob * decayKnob;
+        bool lengthsMoved = false, feedbackMoved = false;
 
         for (int v = 0; v < ROOM_LOOPS; ++v) {
             loopLengthTarget[v] = loopBaseMs * ROOM_LOOP_RATIO[v] * 0.001f * sr;
             float effectiveLength = loopLengthTarget[v];
+            float stageLength[ROOM_AP_STAGES];
             for (int s = 0; s < ROOM_AP_STAGES; ++s) {
-                int length = std::max(1, (int)lroundf(ROOM_LOOP_AP_DELAYS[v][s] * apScale));
-                loopAllpassLength[v][s] = length;
-                effectiveLength += (float)length;
+                stageLength[s] = (float)std::max(1, (int)lroundf(ROOM_LOOP_AP_DELAYS[v][s] * apScale));
+                effectiveLength += stageLength[s];
             }
+            const float_4 target = float_4::load(stageLength);
+            lengthsMoved = lengthsMoved || simd::movemask(target != allpassTarget[v]) != 0;
+            allpassTarget[v] = target;
             // Per-loop feedback from its own total length, so all loops decay together.
-            loopFeedback[v] = expf(-effectiveLength / (decaySec * sr));
+            const float feedbackTarget = expf(-effectiveLength / (decaySec * sr));
+            feedbackMoved = feedbackMoved || feedbackTarget != loopFeedbackTarget[v];
+            loopFeedbackTarget[v] = feedbackTarget;
             if (snap) loopLength[v] = loopLengthTarget[v];
         }
-        for (int side = 0; side < 2; ++side)
+        for (int side = 0; side < 2; ++side) {
+            float stageLength[ROOM_AP_STAGES];
             for (int s = 0; s < ROOM_AP_STAGES; ++s)
-                diffuserLength[side][s] = std::max(1, (int)lroundf(ROOM_DIFFUSER_DELAYS[side][s] * apScale));
+                stageLength[s] = (float)std::max(1, (int)lroundf(ROOM_DIFFUSER_DELAYS[side][s] * apScale));
+            const float_4 target = float_4::load(stageLength);
+            lengthsMoved = lengthsMoved || simd::movemask(target != allpassTarget[ROOM_LOOPS + side]) != 0;
+            allpassTarget[ROOM_LOOPS + side] = target;
+        }
+
+        if (snap) {
+            for (int v = 0; v < ROOM_LOOPS; ++v) loopFeedback[v] = loopFeedbackTarget[v];
+            for (int row = 0; row < AP_ROWS; ++row) {
+                allpassLength[row] = allpassTarget[row];
+                float stageLength[ROOM_AP_STAGES];
+                allpassTarget[row].store(stageLength);
+                for (int s = 0; s < ROOM_AP_STAGES; ++s) {
+                    allpassWhole[row][s] = (int32_t)stageLength[s];
+                    allpassFrac[row][s]  = 0.f;
+                }
+            }
+            lengthsGliding = feedbackGliding = false;
+        } else {
+            lengthsGliding  = lengthsGliding  || lengthsMoved;
+            feedbackGliding = feedbackGliding || feedbackMoved;
+        }
 
         // Haze's coupled darkening: longer decay pulls the cutoff down from the DAMP ceiling.
         float dampHz = ROOM_DAMP_MIN_HZ * powf(ROOM_DAMP_RANGE, dampKnob);
@@ -644,15 +658,56 @@ struct HotPotRoom {
     }
 
     void process(float inL, float inR, float& outL, float& outR) {
+        // SIZE and DECAY glide: allpass lengths and loop feedback follow their
+        // targets with the same slew as the loop lengths, then land exactly on
+        // them, after which the reads go back to whole samples.
+        const bool fractional = lengthsGliding;
+        if (lengthsGliding) {
+            bool settled = true;
+            const float_4 snapSamples = float_4(ROOM_GLIDE_SNAP_SAMPLES);
+            for (int row = 0; row < AP_ROWS; ++row) {
+                const float_4 distance = allpassTarget[row] - allpassLength[row];
+                const float_4 arrived  = simd::fabs(distance) < snapSamples;
+                allpassLength[row] = simd::ifelse(arrived, allpassTarget[row],
+                                                  allpassLength[row] + distance * lengthSlewCoeff);
+                settled = settled && (simd::movemask(arrived) == 0xF);
+                const __m128i whole = _mm_cvttps_epi32(allpassLength[row].v);
+                _mm_storeu_si128((__m128i*)allpassWhole[row], whole);
+                (allpassLength[row] - float_4(_mm_cvtepi32_ps(whole))).store(allpassFrac[row]);
+            }
+            lengthsGliding = !settled;
+        }
+        if (feedbackGliding) {
+            bool settled = true;
+            for (int v = 0; v < ROOM_LOOPS; ++v) {
+                const float distance = loopFeedbackTarget[v] - loopFeedback[v];
+                const bool  arrived  = fabsf(distance) < ROOM_GLIDE_SNAP_FEEDBACK;
+                loopFeedback[v] = arrived ? loopFeedbackTarget[v] : loopFeedback[v] + distance * lengthSlewCoeff;
+                settled = settled && arrived;
+            }
+            feedbackGliding = !settled;
+        }
+
         preDelayLength += (preDelayTarget - preDelayLength) * lengthSlewCoeff;
-        preDelayL.write(inL * inputGain * ROOM_INPUT_TRIM);
-        preDelayR.write(inR * inputGain * ROOM_INPUT_TRIM);
-        float diffusedL = preDelayL.readLinear(preDelayLength);
-        float diffusedR = preDelayR.readLinear(preDelayLength);
+        preDelayL.write(inL * inputGain);
+        preDelayR.write(inR * inputGain);
+        float diffusedL = preDelayL.read(preDelayLength);
+        float diffusedR = preDelayR.read(preDelayLength);
         const float diffuserFeed = 1.f - ROOM_DIFFUSER_COEFF * ROOM_DIFFUSER_COEFF;
-        for (int s = 0; s < ROOM_AP_STAGES; ++s) {
-            diffusedL = diffuserL[s].process(diffusedL, diffuserLength[0][s], ROOM_DIFFUSER_COEFF, diffuserFeed);
-            diffusedR = diffuserR[s].process(diffusedR, diffuserLength[1][s], ROOM_DIFFUSER_COEFF, diffuserFeed);
+        const int32_t* wholeL = allpassWhole[ROOM_LOOPS];
+        const int32_t* wholeR = allpassWhole[ROOM_LOOPS + 1];
+        const float*   fracL  = allpassFrac[ROOM_LOOPS];
+        const float*   fracR  = allpassFrac[ROOM_LOOPS + 1];
+        if (fractional) {
+            for (int s = 0; s < ROOM_AP_STAGES; ++s) {
+                diffusedL = diffuserL[s].process<true>(diffusedL, wholeL[s], fracL[s], ROOM_DIFFUSER_COEFF, diffuserFeed);
+                diffusedR = diffuserR[s].process<true>(diffusedR, wholeR[s], fracR[s], ROOM_DIFFUSER_COEFF, diffuserFeed);
+            }
+        } else {
+            for (int s = 0; s < ROOM_AP_STAGES; ++s) {
+                diffusedL = diffuserL[s].process<false>(diffusedL, wholeL[s], 0.f, ROOM_DIFFUSER_COEFF, diffuserFeed);
+                diffusedR = diffuserR[s].process<false>(diffusedR, wholeR[s], 0.f, ROOM_DIFFUSER_COEFF, diffuserFeed);
+            }
         }
 
         // Rotate the modulation phasor; the magnitude is pulled back to 1 with
@@ -668,12 +723,17 @@ struct HotPotRoom {
         for (int v = 0; v < ROOM_LOOPS; ++v) {
             loopLength[v] += (loopLengthTarget[v] - loopLength[v]) * lengthSlewCoeff;
             float modulation = modSin * ROOM_MOD_COS[v] + modCos * ROOM_MOD_SIN[v];   // sin(theta + v * 60 deg)
-            float out = loopDelay[v].readLinear(loopLength[v] + modDepthSamples * modulation);
+            float out = loopDelay[v].read(loopLength[v] + modDepthSamples * modulation);
             out = loopDcBlock[v].process(out);
             loopDampState[v] = (1.f - dampCoeff) * out + dampCoeff * loopDampState[v];
             out = loopDampState[v];
-            for (int s = 0; s < ROOM_AP_STAGES; ++s)
-                out = loopAllpass[v][s].process(out, loopAllpassLength[v][s], allpassCoeff, loopFeed);
+            if (fractional) {
+                for (int s = 0; s < ROOM_AP_STAGES; ++s)
+                    out = loopAllpass[v][s].process<true>(out, allpassWhole[v][s], allpassFrac[v][s], allpassCoeff, loopFeed);
+            } else {
+                for (int s = 0; s < ROOM_AP_STAGES; ++s)
+                    out = loopAllpass[v][s].process<false>(out, allpassWhole[v][s], 0.f, allpassCoeff, loopFeed);
+            }
             loopOut[v] = out;
         }
 
@@ -718,8 +778,47 @@ struct HotPotRoom {
 };
 
 // -----------------------------------------------------------------------------
-// HotPotTube -- the Simmer drive stage, run at 2x with L in lane 0 and R in
-// lane 1 of one float_4.
+// HotPotButter6 -- 6-pole Butterworth lowpass (Filter6pButter's Q schedule)
+// on all four lanes of a float_4, so two stereo filters with the same cutoff
+// can share one pass: lanes 0 and 1 for one, lanes 2 and 3 for the other.
+//
+// Each stage is the RBJ lowpass Rack's TBiquadFilter uses, in transposed
+// direct form II. A lowpass has b1 = 2 b0 and b2 = b0, so a stage needs
+// three multiplies and keeps two state vectors, with nothing to shift.
+// -----------------------------------------------------------------------------
+struct HotPotButter6 {
+    float_4 b0[3], a1[3], a2[3];
+    float_4 z1[3], z2[3];
+
+    // cutoff as a fraction of the rate the filter runs at
+    void setup(float cutoff) {
+        const float stageQ[3] = { 0.51763809f, 0.70710678f, 1.93185165f };
+        const float K = std::tan(M_PI * cutoff);
+        for (int k = 0; k < 3; ++k) {
+            const float norm = 1.f / (1.f + K / stageQ[k] + K * K);
+            b0[k] = float_4(K * K * norm);
+            a1[k] = float_4(2.f * (K * K - 1.f) * norm);
+            a2[k] = float_4((1.f - K / stageQ[k] + K * K) * norm);
+        }
+        reset();
+    }
+    void reset() {
+        for (int k = 0; k < 3; ++k) z1[k] = z2[k] = float_4(0.f);
+    }
+    inline float_4 process(float_4 x) {
+        for (int k = 0; k < 3; ++k) {
+            const float_4 scaled = x * b0[k];
+            const float_4 y      = scaled + z1[k];
+            z1[k] = scaled + scaled - a1[k] * y + z2[k];
+            z2[k] = scaled - a2[k] * y;
+            x = y;
+        }
+        return x;
+    }
+};
+
+// -----------------------------------------------------------------------------
+// HotPotTube -- the Simmer drive stage, run at 2x on the stereo pair.
 //
 // Shaper g(v) = v / sqrt(1 + v^2), biased by b. Its antiderivative is
 // sqrt(1 + v^2), and the ADAA difference quotient of that simplifies exactly
@@ -727,73 +826,57 @@ struct HotPotRoom {
 // step, so no fallback branch. ADAA and the 2x rate together keep the fold-
 // back of a hard-driven 5 kHz tone about 85 dB down.
 //
-// Resampling is a 6-pole Butterworth (Filter6pButter's Q schedule) at 0.45
-// of the base rate, once each way.
+// Resampling is a 6-pole Butterworth at 0.45 of the base rate, once each way.
+// The up and down filters share the same coefficients, so they run in one
+// pass: lanes 0 and 1 upsample (L, R) while lanes 2 and 3 decimate the
+// previous sample's shaped pair. Both 2x sub-samples are then shaped in one
+// float_4 [first L, first R, second L, second R], so one square root and one
+// divide serve both. The values are exactly those of running each stage in
+// turn; the cost is one sample of latency.
 // -----------------------------------------------------------------------------
 struct HotPotTube {
-    dsp::TBiquadFilter<float_4> upFilter[3], downFilter[3];
-    float_4 lastIn   = float_4(0.f);
+    HotPotButter6 filter;
+    float_4 lastIn   = float_4(0.f);   // shaper inputs of the last pair; lanes 2, 3 are the second sub-sample
     float_4 lastRoot = float_4(1.f);   // sqrt(1 + lastIn^2)
+    float_4 shaped   = float_4(0.f);   // last pair after the shaper, waiting for the down filter
 
     void setup() {
-        const float cutoff = 0.45f * 0.5f;   // 0.45 of the base rate, as a fraction of the 2x rate
-        const float stageQ[3] = { 0.51763809f, 0.70710678f, 1.93185165f };
-        for (int k = 0; k < 3; ++k) {
-            upFilter[k].setParameters(dsp::TBiquadFilter<float_4>::LOWPASS, cutoff, stageQ[k], 1.f);
-            downFilter[k].setParameters(dsp::TBiquadFilter<float_4>::LOWPASS, cutoff, stageQ[k], 1.f);
-        }
+        filter.setup(0.45f * 0.5f);   // 0.45 of the base rate, as a fraction of the 2x rate
     }
 
     void reset() {
-        for (int k = 0; k < 3; ++k) { upFilter[k].reset(); downFilter[k].reset(); }
+        filter.reset();
         lastIn   = float_4(0.f);
         lastRoot = float_4(1.f);
+        shaped   = float_4(0.f);
     }
 
-    // One shaper step at the 2x rate. inScale maps volts to v, bias shifts
-    // the curve, biasOut = g(bias) is removed, outScale maps back to volts.
-    inline float_4 shape(float_4 x, float inScale, float bias, float biasOut, float outScale) {
-        const float_4 v    = x * inScale + bias;
-        const float_4 root = simd::sqrt(1.f + v * v);
-        const float_4 y    = (v + lastIn) / (root + lastRoot);
+    // x carries L and R in lanes 0 and 1; the result does too (one sample
+    // late). inScale maps volts to v, bias shifts the curve, biasOut = g(bias)
+    // is removed, outScale maps back to volts.
+    float_4 process(float_4 x, float inScale, float bias, float biasOut, float outScale) {
+        // Zero-stuffed upsample (gain 2 restores the level) in lanes 0, 1;
+        // the previous pair's two shaped sub-samples through the down filter
+        // in lanes 2, 3.
+        const float_4 doubled  = x * 2.f;
+        const float_4 passOne  = filter.process(float_4(_mm_movelh_ps(doubled.v, shaped.v)));      // [2L, 2R, first L, first R]
+        const float_4 passTwo  = filter.process(float_4(_mm_movehl_ps(shaped.v, _mm_setzero_ps())));  // [0, 0, second L, second R]
+
+        // Both upsampled sub-samples, shaped together.
+        const float_4 upPair = float_4(_mm_movelh_ps(passOne.v, passTwo.v));
+        const float_4 v      = upPair * inScale + bias;
+        const float_4 root   = simd::sqrt(1.f + v * v);
+        // Each sub-sample's predecessor: the last pair's second for the
+        // first, this pair's first for the second.
+        const float_4 vBefore    = float_4(_mm_shuffle_ps(lastIn.v, v.v, _MM_SHUFFLE(1, 0, 3, 2)));
+        const float_4 rootBefore = float_4(_mm_shuffle_ps(lastRoot.v, root.v, _MM_SHUFFLE(1, 0, 3, 2)));
+        const float_4 y = (v + vBefore) / (root + rootBefore);
         lastIn   = v;
         lastRoot = root;
-        return (y - biasOut) * outScale;
-    }
+        shaped   = (y - biasOut) * outScale;
 
-    float_4 process(float_4 x, float inScale, float bias, float biasOut, float outScale) {
-        // Zero-stuffed upsample (gain 2 restores the level), shape both
-        // samples, keep the second after the decimation filter.
-        float_4 first = x * 2.f, second = float_4(0.f);
-        for (int k = 0; k < 3; ++k) first  = upFilter[k].process(first);
-        for (int k = 0; k < 3; ++k) second = upFilter[k].process(second);
-        first  = shape(first,  inScale, bias, biasOut, outScale);
-        second = shape(second, inScale, bias, biasOut, outScale);
-        for (int k = 0; k < 3; ++k) first  = downFilter[k].process(first);
-        for (int k = 0; k < 3; ++k) second = downFilter[k].process(second);
-        return second;
-    }
-};
-
-// -----------------------------------------------------------------------------
-// HotPotHalfRate -- 4-pole Butterworth pair for moving the room between the
-// engine rate and half of it. L in lane 0, R in lane 1. The same filter shape
-// serves both directions; the tank's own damping sits well below its corner,
-// so four poles keep the images out.
-// -----------------------------------------------------------------------------
-struct HotPotHalfRate {
-    dsp::TBiquadFilter<float_4> filter[2];
-
-    void setup() {
-        const float cutoff = ROOM_BAND * 0.5f;   // fraction of the half rate, as a fraction of the full rate
-        const float stageQ[2] = { 0.54119610f, 1.30656296f };
-        for (int k = 0; k < 2; ++k)
-            filter[k].setParameters(dsp::TBiquadFilter<float_4>::LOWPASS, cutoff, stageQ[k], 1.f);
-    }
-    void reset() { for (int k = 0; k < 2; ++k) filter[k].reset(); }
-    inline float_4 process(float_4 x) {
-        for (int k = 0; k < 2; ++k) x = filter[k].process(x);
-        return x;
+        // The decimated output is the second sub-sample's down-filtered value.
+        return float_4(_mm_movehl_ps(passTwo.v, passTwo.v));
     }
 };
 
@@ -839,18 +922,14 @@ struct SimmerQuantity : ParamQuantity {
     std::string getUnit() override { return ""; }
 };
 
-// MOVE readout: "Off" at rest, otherwise the motion rate in Hz. Stir's knob
-// is bipolar, and its sign is the direction of the turn.
+// MOVE readout: "Off" at the bottom, otherwise the motion rate in Hz.
 struct MoveQuantity : ParamQuantity {
     std::string getDisplayValueString() override {
         const float value = getValue();
-        const float magnitude = fabsf(value);
-        if (magnitude <= MOVE_OFF) return "Off";
-        const float hz = MOVE_RATE_MIN_HZ * powf(MOVE_RATE_RANGE, (magnitude - MOVE_OFF) / (1.f - MOVE_OFF));
-        if (getMinValue() < 0.f) return string::f("%.3f Hz %s", hz, (value < 0.f) ? "counterclockwise" : "clockwise");
-        return string::f("%.3f Hz", hz);
+        if (value <= MOVE_OFF) return "Off";
+        return string::f("%.3f", MOVE_RATE_MIN_HZ * powf(MOVE_RATE_RANGE, (value - MOVE_OFF) / (1.f - MOVE_OFF)));
     }
-    std::string getUnit() override { return ""; }
+    std::string getUnit() override { return (getValue() <= MOVE_OFF) ? "" : " Hz"; }
 };
 
 // =============================================================================
@@ -922,16 +1001,22 @@ struct HotPot : Module {
     enum MotionShape { SHAPE_SINE = 0, SHAPE_TRIANGLE, SHAPE_STEPPED };
 
     // -- Saved settings (context menu) ----------------------------------------
-    int  motionShape[NUM_RAILS] = { SHAPE_SINE, SHAPE_SINE, SHAPE_SINE };
+    int  motionShape[NUM_RAILS] = { SHAPE_SINE, SHAPE_TRIANGLE, SHAPE_SINE };
     bool doppler  = true;
-
-    bool itdOn    = true;                           // context menu: natural ear-to-ear delay
+    int  haasMode = 0;                              // index into HAAS_AMOUNTS
 
     // -- Voices ---------------------------------------------------------------
     HotPotVoiceGroup groups[NUM_RAILS][RAIL_GROUPS];
     float railInput[NUM_RAILS][RAIL_SOURCES + 4] = {};   // gathered A then B channels
     int   countA[NUM_RAILS]      = {};
     int   sourceCount[NUM_RAILS] = {};
+
+    // Smoothed position (per source) and spread (per rail), see POSITION_SMOOTH_SEC.
+    float homeSmoothed[NUM_RAILS][RAIL_SOURCES] = {};
+    int   homeSmoothedCount[NUM_RAILS] = {};    // sources already smoothing; newer ones start in place
+    float spreadSmoothed[NUM_RAILS] = {};
+    bool  spreadPrimed[NUM_RAILS]   = {};
+    float positionSmoothCoeff = 1.f;
 
     // Source positions at 1x scene scale, for the display.
     float sourceX[NUM_RAILS][RAIL_SOURCES] = {};
@@ -940,7 +1025,7 @@ struct HotPot : Module {
     // -- Motion ---------------------------------------------------------------
     float motionPhase[NUM_RAILS]  = {};
     float motionAmount[NUM_RAILS] = {};            // rails: fades motion in and out as MOVE turns on or off
-    float modeBlend[NUM_RAILS] = { 1.f, 1.f, 1.f };  // 0 = parallel, 1 = mirrored, crossfaded
+    float modeBlend[NUM_RAILS] = { 0.f, 0.f, 0.f };  // 0 = parallel, 1 = mirrored, crossfaded
     float muteGain[NUM_RAILS]  = { 1.f, 1.f, 1.f };  // faded rail mutes
     float mainMuteGain = 1.f, mainMuteCoeff = 0.002f;
     bool  skimming[NUM_RAILS]  = {};               // Skim in progress: settling home
@@ -949,22 +1034,19 @@ struct HotPot : Module {
 
     // -- Room and bus ---------------------------------------------------------
     HotPotRoom room;
-    HotPotHalfRate roomDecimator, roomInterpolator;         // into and out of the half-rate tank
-    float_4 roomHeld  = float_4(0.f);                       // last tank output, L and R lanes
+    // Into and out of the half-rate tank in one filter pass: lanes 0, 1
+    // band-limit the send, lanes 2, 3 rebuild the full rate from the
+    // previous sample's zero-stuffed tank output (one sample of latency).
+    HotPotButter6 roomResampler;
+    float_4 roomPending = float_4(0.f);                     // tank output waiting for the rebuild filter, L and R lanes
     bool    roomPhase = false;                              // tank runs when this is false
     bool    roomFullRate = false;                           // context menu: tank at the engine rate
     bool    roomFullRateActive = false;                     // what the tank is currently set up for
     HotPotSat  busSatL, busSatR;
-    float trackNorm[NUM_RAILS] = { 1.f, 1.f, 1.f };         // 1 / sqrt(active channels), glided
-    int   warmupHold = 0;                                  // samples of silence left
-    float warmupGain = 0.f, warmupStep = 0.01f;            // output fade-in after the hold
-    float bandB0[3] = {}, bandA1[3] = {}, bandA2[3] = {};  // tone bandpasses, shared by every source
-    float rearLowCoeff = 0.5f;                             // rear highs split, shared by every source
-    float activityReleaseCoeff = 0.9999f;
-    float levelerPower = 0.f;                              // mix mean square
-    float levelerPowerCoeff = 0.0001f;
-    float levelerTarget = 1.f;                             // glided at control rate
-    float levelerGain = 1.f, levelerGainStep = 0.f;        // ramped per block
+    float countGainCurrent = 1.f, countGainTarget = 1.f;   // headroom anticipation from the source count
+    float mixEnv = 0.f;                                    // mix peak follower
+    float potGain = 1.f, potGainStep = 0.f;                // mix compressor gain, ramped per block
+    float mixAttackCoeff = 0.01f, mixReleaseCoeff = 0.0001f;
 
     // Simmer: targets set at control rate, smoothed per sample.
     float volumeTarget = 1.f, volumeCurrent = 1.f;
@@ -973,11 +1055,6 @@ struct HotPot : Module {
     float makeupTarget = 1.f, makeupCurrent = 1.f;
     float warmCoeff    = 0.f;                               // post-drive one-pole, 0 = open
     HotPotTube tube;
-    bool  tubeWanted = false;                               // drive above unity
-    bool  tubeIdle   = true;                                // bypassed and reset
-    float tubeBlend  = 0.f, tubeFadeCoeff = 0.001f;
-    int   roomQuietSamples = 0;
-    bool  roomAsleep = false;
     float_4 warmState = float_4(0.f);                       // post-drive rolloff, L and R lanes
     float_4 dcInLast  = float_4(0.f), dcOutLast = float_4(0.f);
     float   dcCoeff   = 0.9974f;                            // 20 Hz DC blocker after the tube
@@ -995,6 +1072,16 @@ struct HotPot : Module {
     float levelReleaseCoeff = 0.999f;
     float smoothCoeff       = 0.001f;   // source-count and main gain smoothing
     int   controlCounter    = CONTROL_DIV;
+
+    // Control-rate constants, worked out once per sample rate (or when the
+    // setting they hang on changes) rather than every control tick.
+    float fadeCoeff  = 0.f, skimCoeff = 0.f, modeCoeff = 0.f, muteCoeff = 0.f;
+    float frontCos   = 1.f, frontAlpha = 0.f;   // front presence peak
+    float centsStep  = 0.f;                     // ITD_MAX_CENTS as delay change per sample
+    int   haasCachedMode  = -1;
+    float haasCachedRatio = 1.f;                // powf(HAAS_MAX_SEC / itdMaxSec, HAAS_AMOUNTS[mode])
+    float shelfCachedCues = -1.f;
+    float shelfCos = 1.f, shelfAlpha = 0.f;     // rear shelf, from Spice
     int   displayCounter    = 0;
     float wetFollower       = 0.f;
 
@@ -1019,9 +1106,7 @@ struct HotPot : Module {
             configParam(POS_ATT_PARAM    + r, -1.f, 1.f, 0.f,  name + " position CV attenuverter", "%", 0.f, 100.f);
             configParam(SPREAD_PARAM     + r,  0.f, 1.f, 0.3f, name + " spread", "%", 0.f, 100.f);
             configParam(SPREAD_ATT_PARAM + r, -1.f, 1.f, 0.f,  name + " spread CV attenuverter", "%", 0.f, 100.f);
-            // Stir turns either way: left of centre counterclockwise, right clockwise.
-            if (r == 0) configParam<MoveQuantity>(MOVE_PARAM + r, -1.f, 1.f, 0.f, name + " motion rate and direction");
-            else        configParam<MoveQuantity>(MOVE_PARAM + r,  0.f, 1.f, 0.f, name + " motion rate");
+            configParam<MoveQuantity>(MOVE_PARAM + r, 0.f, 1.f, 0.f, name + " motion rate");
             configParam(MOVE_ATT_PARAM   + r, -1.f, 1.f, 0.f,  name + " move CV attenuverter", "%", 0.f, 100.f);
             // dB readout: 40 log10(x) - 40 log10(LEVEL_UNITY_POS).
             configParam(LEVEL_PARAM      + r,  0.f, 1.f, LEVEL_UNITY_POS, name + " level", " dB", -10.f, 40.f,
@@ -1051,9 +1136,9 @@ struct HotPot : Module {
         configParam<SimmerQuantity>(MAIN_PARAM, 0.f, 1.f, 0.5f, "Simmer (volume / tube drive)");
         configParam(MAIN_ATT_PARAM, -1.f, 1.f, 0.f,    "Simmer CV attenuverter", "%", 0.f, 100.f);
         configButton(RESET_PARAM, "Skim (motion reset)");
-        configSwitch(MODE_PARAM + 0, 0.f, 1.f, 1.f, "Stir motion",  { "Parallel: all turn together", "Mirrored: halves turn opposite ways" });
-        configSwitch(MODE_PARAM + 1, 0.f, 1.f, 1.f, "Shabu motion", { "Parallel: the group swishes together", "Mirrored: halves open and close" });
-        configSwitch(MODE_PARAM + 2, 0.f, 1.f, 1.f, "Fan motion",   { "Parallel: the two tracks rock against each other", "Mirrored: both tracks move together" });
+        configSwitch(MODE_PARAM + 0, 0.f, 1.f, 0.f, "Stir motion",  { "Parallel: all turn together", "Mirrored: halves turn opposite ways" });
+        configSwitch(MODE_PARAM + 1, 0.f, 1.f, 0.f, "Shabu motion", { "Parallel: the group swishes together", "Mirrored: halves open and close" });
+        configSwitch(MODE_PARAM + 2, 0.f, 1.f, 0.f, "Fan motion",   { "Parallel: both tracks move together", "Mirrored: the two tracks rock against each other" });
         configSwitch(MUTE_PARAM + 0, 0.f, 1.f, 0.f, "Stir mute",  { "On", "Muted" });
         configSwitch(MUTE_PARAM + 1, 0.f, 1.f, 0.f, "Shabu mute", { "On", "Muted" });
         configSwitch(MUTE_PARAM + 2, 0.f, 1.f, 0.f, "Fan mute",   { "On", "Muted" });
@@ -1078,9 +1163,9 @@ struct HotPot : Module {
 
     void initDsp(float sr) {
         sampleRate = sr;
-        // ITD + propagation + margin. Always allocated at full size so toggling
+        // HAAS + propagation + margin. Always allocated at full size so toggling
         // Doppler never reallocates while audio runs.
-        int voiceDelaySamples = (int)ceilf((ITD_BUFFER_SEC + PROPAGATION_MAX_SEC) * sr) + 16;
+        int voiceDelaySamples = (int)ceilf((HAAS_MAX_SEC + PROPAGATION_MAX_SEC) * sr) + 16;
         for (int r = 0; r < NUM_RAILS; ++r)
             for (int g = 0; g < RAIL_GROUPS; ++g) {
                 groups[r][g].delay.init(voiceDelaySamples);
@@ -1090,34 +1175,37 @@ struct HotPot : Module {
         room.init(sr);
         room.setRate(roomFullRate ? sr : 0.5f * sr);
         roomFullRateActive = roomFullRate;
-        roomDecimator.setup();
-        roomInterpolator.setup();
-        roomDecimator.reset();
-        roomInterpolator.reset();
-        roomHeld  = float_4(0.f);
+        roomResampler.setup(ROOM_BAND * 0.5f);   // fraction of the half rate, as a fraction of the full rate
+        roomResampler.reset();
+        roomPending = float_4(0.f);
         roomPhase = false;
         roomSnapPending = true;
 
         delaySlewCoeff    = 1.f - expf(-1.f / (DELAY_SLEW_SEC * sr));
-
         dopplerCoeff      = 1.f - expf(-1.f / (DOPPLER_SMOOTH_SEC * sr));
         dopplerMaxStep    = DOPPLER_MAX_SPEED / SPEED_OF_SOUND;
         levelReleaseCoeff = expf(-1.f / (LEVEL_RELEASE_SEC * sr));
         smoothCoeff       = 1.f - expf(-1.f / (GAIN_SLEW_SEC * sr));
-        activityReleaseCoeff = expf(-1.f / (ACTIVE_RELEASE_SEC * sr));
-        levelerPowerCoeff    = 1.f - expf(-1.f / (LEVELER_RMS_SEC * sr));
+        mixAttackCoeff    = 1.f - expf(-1.f / (MIX_ATTACK_SEC * sr));
+        mixReleaseCoeff   = 1.f - expf(-1.f / (MIX_RELEASE_SEC * sr));
         tube.setup();
         tube.reset();
         dcCoeff = 1.f - 2.f * float(M_PI) * 20.f / sr;
         mainMuteCoeff     = 1.f - expf(-1.f / (MUTE_FADE_SEC * sr));
-        tubeFadeCoeff     = 1.f - expf(-1.f / (TUBE_FADE_SEC * sr));
         controlCounter    = CONTROL_DIV;   // force a control update on the next sample
-        warmupHold        = (int)(WARMUP_HOLD_SEC * sr);
-        warmupStep        = 1.f / std::max(WARMUP_FADE_SEC * sr, 1.f);
-        warmupGain        = 0.f;
-        levelerTarget = levelerGain = powf(10.f, -LEVELER_MAX_DB / 20.f);
-        levelerGainStep   = 0.f;
-        levelerPower      = 0.f;
+
+        const float tickSec = (float)CONTROL_DIV / sr;
+        fadeCoeff  = 1.f - expf(-tickSec / MOTION_FADE_SEC);
+        skimCoeff  = 1.f - expf(-tickSec / SKIM_SEC);
+        modeCoeff  = 1.f - expf(-tickSec / MODE_FADE_SEC);
+        muteCoeff  = 1.f - expf(-tickSec / MUTE_FADE_SEC);
+        const float frontW = 2.f * float(M_PI) * FRONT_PEAK_HZ / sr;
+        frontCos   = cosf(frontW);
+        frontAlpha = sinf(frontW) / (2.f * FRONT_PEAK_Q);
+        // A delay changing by k samples per sample shifts pitch by a ratio of 1 - k.
+        centsStep  = 1.f - exp2f(-ITD_MAX_CENTS / 1200.f);
+        positionSmoothCoeff = 1.f - expf(-tickSec / POSITION_SMOOTH_SEC);
+        shelfCachedCues = -1.f;   // the shelf depends on the rate too
     }
 
     void onSampleRateChange(const SampleRateChangeEvent& e) override {
@@ -1126,34 +1214,26 @@ struct HotPot : Module {
 
     void onReset() override {
         for (int r = 0; r < NUM_RAILS; ++r) {
-            motionShape[r]    = SHAPE_SINE;
+            motionShape[r]    = (r == 1) ? SHAPE_TRIANGLE : SHAPE_SINE;
             motionPhase[r]    = 0.f;
             motionAmount[r]   = 0.f;
-            modeBlend[r]      = 1.f;
+            modeBlend[r]      = 0.f;
             skimming[r]       = false;
             for (int g = 0; g < RAIL_GROUPS; ++g) { groups[r][g].resetState(); groups[r][g].active = false; }
         }
         doppler  = true;
         roomFullRate = false;
         ringTurn = 0.f;
-        itdOn    = true;
-        for (int r = 0; r < NUM_RAILS; ++r) trackNorm[r] = 1.f;
-        levelerPower = 0.f;
-        levelerTarget = levelerGain = powf(10.f, -LEVELER_MAX_DB / 20.f);
-        levelerGainStep = 0.f;
+        haasMode = 0;
+        mixEnv   = 0.f;
+        potGain  = 1.f;
+        potGainStep = 0.f;
         room.clear();
-        roomDecimator.reset();
-        roomInterpolator.reset();
-        roomHeld = float_4(0.f);
+        roomResampler.reset();
+        roomPending = float_4(0.f);
         busSatL.reset();
         busSatR.reset();
         tube.reset();
-        tubeBlend = 0.f;
-        tubeIdle  = true;
-        roomAsleep = false;
-        roomQuietSamples = 0;
-        warmupHold = (int)(WARMUP_HOLD_SEC * sampleRate);
-        warmupGain = 0.f;
         warmState = dcInLast = dcOutLast = float_4(0.f);
         roomSnapPending = true;
     }
@@ -1165,8 +1245,7 @@ struct HotPot : Module {
             json_object_set_new(root, key.c_str(), json_integer(motionShape[r]));
         }
         json_object_set_new(root, "doppler",  json_boolean(doppler));
-
-        json_object_set_new(root, "itdOn", json_boolean(itdOn));
+        json_object_set_new(root, "haasMode", json_integer(haasMode));
         json_object_set_new(root, "roomFullRate", json_boolean(roomFullRate));
         return root;
     }
@@ -1179,11 +1258,10 @@ struct HotPot : Module {
         }
         json_t* dopplerJ = json_object_get(root, "doppler");
         if (dopplerJ) doppler = json_boolean_value(dopplerJ);
-
         json_t* fullRateJ = json_object_get(root, "roomFullRate");
         if (fullRateJ) roomFullRate = json_boolean_value(fullRateJ);
-        json_t* itdJ = json_object_get(root, "itdOn");
-        if (itdJ) itdOn = json_boolean_value(itdJ);
+        json_t* haasJ = json_object_get(root, "haasMode");
+        if (haasJ) haasMode = clamp((int)json_integer_value(haasJ), 0, 3);
     }
 
     // Bypass: A inputs to left, B inputs to right (A normalled to both when B
@@ -1226,8 +1304,13 @@ struct HotPot : Module {
         const float roomAmount = clamp(params[ROOM_PARAM].getValue()
                                      + params[ROOM_ATT_PARAM].getValue() * inputs[ROOM_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
 
-        // Far-ear delay at 90 degrees, or none with the ear delay switched off.
-        const float itdMaxSamples = itdOn ? itdMaxSec * sr : 0.f;
+        // Haas (context menu) stretches the far-ear maximum from natural ITD to HAAS_MAX_SEC.
+        const int haasIndex = clamp(haasMode, 0, 3);
+        if (haasIndex != haasCachedMode) {
+            haasCachedMode  = haasIndex;
+            haasCachedRatio = powf(HAAS_MAX_SEC / itdMaxSec, HAAS_AMOUNTS[haasIndex]);
+        }
+        const float haasMaxSamples = itdMaxSec * haasCachedRatio * sr;
 
         // -- Motion reset button ----------------------------------------------
         // Skim glides everything home rather than jumping; the light stays on
@@ -1243,33 +1326,21 @@ struct HotPot : Module {
         const float shadowOmega = SPEED_OF_SOUND / HEAD_RADIUS_M / sqrtf(std::max(cues, 1.f));
         const float shadowT     = sr / shadowOmega;
 
-        // Tone bands: RBJ constant 0 dB peak bandpasses (b1 = 0, b2 = -b0).
-        {
-            const float bandHz[3] = { FRONT_PEAK_HZ, FRONT_LOW_HZ, EAR_NOTCH_HZ };
-            const float bandQ[3]  = { FRONT_PEAK_Q,  FRONT_LOW_Q,  EAR_NOTCH_Q };
-            for (int k = 0; k < 3; ++k) {
-                const float bandW     = 2.f * float(M_PI) * std::min(bandHz[k], 0.45f * sr) / sr;
-                const float bandAlpha = sinf(bandW) / (2.f * bandQ[k]);
-                const float a0        = 1.f + bandAlpha;
-                bandB0[k] = bandAlpha / a0;
-                bandA1[k] = -2.f * cosf(bandW) / a0;
-                bandA2[k] = (1.f - bandAlpha) / a0;
-            }
+        if (cues != shelfCachedCues) {
+            shelfCachedCues = cues;
+            const float shelfSlide = clamp((cues - 1.f) * 0.5f, 0.f, 1.f);
+            const float shelfHz    = REAR_SHELF_HZ + (REAR_SHELF_HZ_LOW - REAR_SHELF_HZ) * shelfSlide;
+            const float shelfW     = 2.f * float(M_PI) * shelfHz / sr;
+            shelfCos   = cosf(shelfW);
+            shelfAlpha = sinf(shelfW) * 0.5f * float(M_SQRT2);   // shelf slope S = 1
         }
-        // Rear shelf corner slides down with Spice past 100%.
-        const float shelfSlide = clamp((cues - 1.f) * 0.5f, 0.f, 1.f);
-        const float shelfHz    = REAR_SHELF_HZ + (REAR_SHELF_HZ_LOW - REAR_SHELF_HZ) * shelfSlide;
-        rearLowCoeff = 1.f - expf(-2.f * float(M_PI) * shelfHz / sr);
+        const float spiceExtra = std::max(cues - 1.f, 0.f);
+        const float shadowNorm = 1.f / (1.f + shadowT);
 
         const float unityDistance = RING_RADIUS_M * sceneScale;
         const float inHeadRadius  = IN_HEAD_RADIUS_M * sceneScale;
-        const float fadeCoeff      = 1.f - expf(-tickSec / MOTION_FADE_SEC);
-        const float skimCoeff      = 1.f - expf(-tickSec / SKIM_SEC);
-        const float modeCoeff      = 1.f - expf(-tickSec / MODE_FADE_SEC);
-        const float muteCoeff      = 1.f - expf(-tickSec / MUTE_FADE_SEC);
-        const float normDownCoeff  = 1.f - expf(-tickSec / NORM_DOWN_SEC);
-        const float normUpCoeff    = 1.f - expf(-tickSec / NORM_UP_SEC);
 
+        int totalSources = 0;
 
         for (int r = 0; r < NUM_RAILS; ++r) {
             const int nA = inputs[IN_A_INPUT + r].getChannels();
@@ -1277,23 +1348,22 @@ struct HotPot : Module {
             const int n  = nA + nB;
             countA[r]      = nA;
             sourceCount[r] = n;
+            totalSources  += n;
 
             // -- Motion --------------------------------------------------------
-            // MOVE is the rate: off at rest, then exponential across the knob.
-            // Stir's knob is bipolar and its sign sets the direction. Rails fade
-            // their motion in and out; Stir keeps a running turn that winds back
-            // home the short way when stopped.
+            // MOVE is the rate: off at the bottom, then exponential across the
+            // whole slider. Rails fade their motion in and out; Stir keeps a
+            // running turn that winds back home the short way when stopped.
             const float moveValue = clamp(params[MOVE_PARAM + r].getValue()
                                         + params[MOVE_ATT_PARAM + r].getValue() * inputs[MOVE_CV_INPUT + r].getVoltage() * 0.1f,
-                                          (r == 0) ? -1.f : 0.f, 1.f);
-            const float moveMagnitude = fabsf(moveValue);
-            const bool moving = (moveMagnitude > MOVE_OFF) && !skimming[r];
+                                          0.f, 1.f);
+            const bool moving = (moveValue > MOVE_OFF) && !skimming[r];
             if (moving) {
-                const float hz = MOVE_RATE_MIN_HZ * powf(MOVE_RATE_RANGE, (moveMagnitude - MOVE_OFF) / (1.f - MOVE_OFF));
+                const float hz = MOVE_RATE_MIN_HZ * powf(MOVE_RATE_RANGE, (moveValue - MOVE_OFF) / (1.f - MOVE_OFF));
                 motionPhase[r] += hz * tickSec;
                 motionPhase[r] -= floorf(motionPhase[r]);
                 if (r == 0) {
-                    ringTurn += ((moveValue < 0.f) ? -hz : hz) * tickSec;
+                    ringTurn += hz * tickSec;
                     ringTurn -= floorf(ringTurn + 0.5f);   // a whole turn is invisible
                 }
             }
@@ -1311,41 +1381,28 @@ struct HotPot : Module {
             const int   shape  = motionShape[r];
 
             const float modeTarget = (params[MODE_PARAM + r].getValue() > 0.5f) ? 1.f : 0.f;
-            if (warmupHold > 0) modeBlend[r] = modeTarget;
-            else modeBlend[r] += (modeTarget - modeBlend[r]) * modeCoeff;
+            modeBlend[r] += (modeTarget - modeBlend[r]) * modeCoeff;
             const float blend = modeBlend[r];
             lights[MODE_LIGHT + r].setBrightness(modeTarget);
 
             // Rail mute fades the source level, so dry and send stop together
             // and the room tail rings out naturally.
             const bool muted = params[MUTE_PARAM + r].getValue() > 0.5f;
-            if (warmupHold > 0) muteGain[r] = muted ? 0.f : 1.f;
-            else muteGain[r] += ((muted ? 0.f : 1.f) - muteGain[r]) * muteCoeff;
+            muteGain[r] += ((muted ? 0.f : 1.f) - muteGain[r]) * muteCoeff;
             lights[MUTE_LIGHT + r].setBrightness(muted ? 1.f : 0.f);
 
             // -- Placement inputs ----------------------------------------------
-            const float spreadNorm = clamp(params[SPREAD_PARAM + r].getValue()
+            const float spreadTarget = clamp(params[SPREAD_PARAM + r].getValue()
                                          + params[SPREAD_ATT_PARAM + r].getValue() * inputs[SPREAD_CV_INPUT + r].getVoltage() * 0.1f,
                                            0.f, 1.f);
+            if (!spreadPrimed[r]) { spreadSmoothed[r] = spreadTarget; spreadPrimed[r] = true; }
+            spreadSmoothed[r] += (spreadTarget - spreadSmoothed[r]) * positionSmoothCoeff;
+            const float spreadNorm = spreadSmoothed[r];
 
             // Level: slider gain times a 0-10 V VCA. The CV is normalled to
             // 10 V, and sources beyond a poly CV's channel count are unaffected.
             const float levelSlider   = params[LEVEL_PARAM + r].getValue() / LEVEL_UNITY_POS;
-            // Active channel count: each channel counts in proportion to its
-            // held peak, up to one whole voice.
-            float activeChannels = 0.f;
-            for (int g = 0; g * 4 < n; ++g) {
-                if (!groups[r][g].active) continue;
-                float lanes[4];
-                groups[r][g].activity.store(lanes);
-                for (int lane = 0; lane < 4 && g * 4 + lane < n; ++lane)
-                    activeChannels += std::min(lanes[lane] / ACTIVE_FULL_V, 1.f);
-            }
-            const float normTarget = 1.f / sqrtf(std::max(activeChannels, 1.f));
-            if (warmupHold > 0) trackNorm[r] = normTarget;     // warm-up hold: no glide
-            else trackNorm[r] += (normTarget - trackNorm[r]) * ((normTarget < trackNorm[r]) ? normDownCoeff : normUpCoeff);
-
-            const float levelSliderGain = levelSlider * levelSlider * muteGain[r] * trackNorm[r];
+            const float levelSliderGain = levelSlider * levelSlider * muteGain[r];
             const float levelDepth    = params[LEVEL_ATT_PARAM + r].getValue();
             Input& levelCv            = inputs[LEVEL_CV_INPUT + r];
             const int   levelCvChannels = levelCv.getChannels();
@@ -1357,20 +1414,28 @@ struct HotPot : Module {
             // Stir's turn, stepped if asked. The staircase maps -0.5 and +0.5
             // to exactly one turn apart, so the wrap stays invisible.
             const float ringCycles = (shape == SHAPE_STEPPED) ? hotPotSteppedPhase(ringTurn) : ringTurn;
+            // Shabu and Fan sweep position, the same for every source on the rail.
+            const float swing = (r == 0) ? 0.f : motionShapeValue(shape, motionPhase[r]);
 
             // Scratch per source, loaded into float_4 groups below.
-            float airCoeff[RAIL_SOURCES + 4]  = {};
-            float presence[RAIL_SOURCES + 4] = {}, lowLift[RAIL_SOURCES + 4] = {};
-            float earNotch[RAIL_SOURCES + 4] = {}, rear[RAIL_SOURCES + 4] = {};
-
+            // Scratch per source, loaded into float_4 groups below. Only the
+            // groups in use are loaded, so only their slots are filled; the
+            // unused lanes of the last group get neutral values.
+            float airCoeff[RAIL_SOURCES + 4];
+            float toneB0[RAIL_SOURCES + 4], toneB1[RAIL_SOURCES + 4], toneB2[RAIL_SOURCES + 4];
+            float toneA1[RAIL_SOURCES + 4], toneA2[RAIL_SOURCES + 4];
             float delayTargetL[RAIL_SOURCES + 4], delayTargetR[RAIL_SOURCES + 4];
-            float propagationTarget[RAIL_SOURCES + 4] = {};
-            float gainL[RAIL_SOURCES + 4] = {}, gainR[RAIL_SOURCES + 4] = {};
-            float sendL[RAIL_SOURCES + 4] = {}, sendR[RAIL_SOURCES + 4] = {};
+            float propagationTarget[RAIL_SOURCES + 4];
+            float gainL[RAIL_SOURCES + 4], gainR[RAIL_SOURCES + 4];
+            float sendL[RAIL_SOURCES + 4], sendR[RAIL_SOURCES + 4];
             float shadowB0L[RAIL_SOURCES + 4], shadowB1L[RAIL_SOURCES + 4], shadowA1L[RAIL_SOURCES + 4];
             float shadowB0R[RAIL_SOURCES + 4], shadowB1R[RAIL_SOURCES + 4], shadowA1R[RAIL_SOURCES + 4];
-            float levelGain[RAIL_SOURCES + 4] = {};
-            for (int i = 0; i < RAIL_SOURCES + 4; ++i) {
+            float levelGain[RAIL_SOURCES + 4];
+            const int paddedCount = ((n + 3) / 4) * 4;
+            for (int i = 0; i < paddedCount; ++i) {
+                airCoeff[i] = propagationTarget[i] = levelGain[i] = 0.f;
+                gainL[i] = gainR[i] = sendL[i] = sendR[i] = 0.f;
+                toneB0[i] = 1.f; toneB1[i] = toneB2[i] = toneA1[i] = toneA2[i] = 0.f;
                 delayTargetL[i] = delayTargetR[i] = MIN_TAP_DELAY;
                 shadowB0L[i] = shadowB0R[i] = 1.f;
                 shadowB1L[i] = shadowB1R[i] = shadowA1L[i] = shadowA1R[i] = 0.f;
@@ -1381,7 +1446,10 @@ struct HotPot : Module {
                 float cvVolts = 0.f;
                 if (posCvChannels == 1)     cvVolts = posCv.getVoltage(0);
                 else if (i < posCvChannels) cvVolts = posCv.getVoltage(i);
-                const float posHome = posKnob + posAtt * cvVolts * 0.2f;   // +-5 V covers the whole rail
+                const float homeTarget = posKnob + posAtt * cvVolts * 0.2f;   // +-5 V covers the whole rail
+                if (i >= homeSmoothedCount[r]) homeSmoothed[r][i] = homeTarget;   // a new source starts where it is
+                homeSmoothed[r][i] += (homeTarget - homeSmoothed[r][i]) * positionSmoothCoeff;
+                const float posHome = homeSmoothed[r][i];
 
                 float levelVolts = 10.f;
                 if (levelCvChannels == 1)     levelVolts = levelCv.getVoltage(0);
@@ -1433,46 +1501,46 @@ struct HotPot : Module {
                     y = radius * cosf(angle);
                 } else {
                     // Rails move a rigid formation: the sources keep their order
-                    // and their spacing, so they never bunch up at a rail end.
-                    const float home      = clamp(posHome, -1.f, 1.f);
+                    // and spacing and never pass through one another. Placement
+                    // is worked out on an open-ended line first (home, plus the
+                    // sweep, plus each source's offset in the formation), then
+                    // eased onto the rail: linear out to RAIL_EDGE_KNEE, then
+                    // padded into the ends, which are approached but never
+                    // reached. Pushed toward an end, the formation bunches up
+                    // softly rather than piling into the end stop.
+                    // Past +-2 everything is already pressed into the padding.
+                    const float home      = clamp(posHome, -2.f, 2.f);
                     const float formation = centered * 2.f;               // -1 .. +1 across this side's sources
-                    const float swing     = motionShapeValue(shape, motionPhase[r]);
 
-                    // At rest the formation's half-width is Spread, fitted
-                    // between home and the nearer end.
-                    const float restAlong = home + formation * std::min(spreadNorm, 1.f - fabsf(home));
+                    const float restOpen = home + formation * spreadNorm;
 
-                    // Sweep: the formation keeps its width and travels until its
-                    // outermost source meets a rail end. Its width is capped so
-                    // there is always RAIL_MIN_TRAVEL of travel either way.
-                    const float sweepWidth  = (sideCount > 1) ? std::min(spreadNorm, 1.f - RAIL_MIN_TRAVEL) : 0.f;
-                    const float sweepRoom   = 1.f - sweepWidth;           // farthest the center may go
-                    const float sweepHome   = clamp(home, -sweepRoom, sweepRoom);
-                    const float sweepTravel = sweepRoom - fabsf(sweepHome);
-                    // Fan's parallel mode sweeps its two tracks in opposite directions.
-                    const float alongSweep  = sweepHome + swing * sweepTravel * ((r == 2) ? fanSide : 1.f) + formation * sweepWidth;
-                    const float alongSweepTogether = sweepHome + swing * sweepTravel + formation * sweepWidth;
+                    // A sweep of the whole formation about home, one rail half
+                    // each way.
+                    const float sweepOpen = restOpen + swing;
 
-                    float alongParallel, alongMirrored;
+                    float parallelOpen, mirroredOpen;
                     if (r == 1) {
                         // Shabu. Parallel: the formation swishes side to side.
-                        // Mirrored: the two halves breathe about home, from the
-                        // Spread width (at most half the open width) out to the
-                        // nearer rail end. A lone source swishes.
-                        const float openWidth   = 1.f - fabsf(home);
-                        const float closedWidth = std::min(spreadNorm, openWidth * (1.f - RAIL_MIN_BREATHE));
-                        alongParallel = alongSweep;
-                        alongMirrored = (sideCount > 1)
-                                      ? home + formation * (closedWidth + (openWidth - closedWidth) * (0.5f + 0.5f * swing))
-                                      : alongSweep;
+                        // Mirrored: the two halves open and close about home,
+                        // from together out to the padded ends. A lone source swishes.
+                        parallelOpen = sweepOpen;
+                        mirroredOpen = (sideCount > 1) ? home + formation * (0.5f + 0.5f * swing)
+                                                       : sweepOpen;
                     } else {
-                        // Fan. Mirrored: both tracks move front and back together.
-                        // Parallel: the two tracks rock against each other.
-                        alongParallel = alongSweep;
-                        alongMirrored = alongSweepTogether;
+                        // Fan. Parallel: both tracks move front and back together.
+                        // Mirrored: the two tracks rock against each other.
+                        parallelOpen = sweepOpen;
+                        mirroredOpen = restOpen + swing * fanSide;
                     }
-                    const float alongMoving = alongParallel + (alongMirrored - alongParallel) * blend;
-                    const float along = restAlong + (alongMoving - restAlong) * amount;
+                    const float movingOpen = parallelOpen + (mirroredOpen - parallelOpen) * blend;
+                    const float open       = restOpen + (movingOpen - restOpen) * amount;
+
+                    // Ease onto the rail: identity inside the knee, tanh beyond
+                    // it (matched in value and slope at the knee).
+                    const float openMagnitude = fabsf(open);
+                    const float along = (openMagnitude <= RAIL_EDGE_KNEE) ? open
+                        : copysignf(RAIL_EDGE_KNEE + (1.f - RAIL_EDGE_KNEE)
+                                    * tanhf((openMagnitude - RAIL_EDGE_KNEE) / (1.f - RAIL_EDGE_KNEE)), open);
 
                     if (r == 1) {
                         x = along * RAIL_HALF_LENGTH_M * sceneScale;
@@ -1500,7 +1568,6 @@ struct HotPot : Module {
                 const float frontness = cosTheta * headFade;
 
                 // Distance gain, level-normalized to the ring radius.
-                const float spiceExtra = std::max(cues - 1.f, 0.f);
                 const float distanceRatio = std::max(distance, unityDistance * 0.25f) / unityDistance;
                 float distanceGain = powf(distanceRatio, -(std::min(cues, 1.f) + SPICE_DISTANCE_EXTRA * spiceExtra));
                 distanceGain = std::min(distanceGain, NEAR_GAIN_CAP);
@@ -1510,23 +1577,34 @@ struct HotPot : Module {
                 float airHz = clamp(20000.f / (1.f + cues * distance / AIR_DISTANCE_M), AIR_MIN_HZ, 20000.f);
                 airCoeff[i] = (airHz >= 19999.f) ? 0.f : expf(-2.f * float(M_PI) * airHz / sr);
 
-                // Front/back tone: presence band gain in front, highs gain behind.
-                // Both are 0 dB at the sides, so crossing them is seamless.
-                // dB to gain as exp2(dB * log2(10) / 20).
-                presence[i] = dsp::exp2_taylor5(FRONT_PEAK_DB * cues * std::max(frontness, 0.f) * 0.16609640f) - 1.f;
-                lowLift[i]  = dsp::exp2_taylor5(FRONT_LOW_DB  * cues * std::max(frontness, 0.f) * 0.16609640f) - 1.f;
-                rear[i]     = dsp::exp2_taylor5(REAR_SHELF_DB * cues * std::max(-frontness, 0.f) * 0.16609640f) - 1.f;
-                // Ear-level notch: full in front and at the sides, gone behind
-                // (the rear shelf speaks there), and neutral inside the head.
-                const float notchWeight = std::min(1.f, 1.f + cosTheta) * headFade;
-                earNotch[i] = dsp::exp2_taylor5(EAR_NOTCH_DB * cues * notchWeight * 0.16609640f) - 1.f;
+                // Front/back tone: presence peak in front, high shelf behind.
+                if (frontness > 1e-4f) {
+                    float gainDb = FRONT_PEAK_DB * cues * frontness;
+                    float amp    = powf(10.f, gainDb / 40.f);
+                    float a0     = 1.f + frontAlpha / amp;
+                    toneB0[i] = (1.f + frontAlpha * amp) / a0;
+                    toneB1[i] = -2.f * frontCos / a0;
+                    toneB2[i] = (1.f - frontAlpha * amp) / a0;
+                    toneA1[i] = -2.f * frontCos / a0;
+                    toneA2[i] = (1.f - frontAlpha / amp) / a0;
+                } else if (frontness < -1e-4f) {
+                    float gainDb = REAR_SHELF_DB * cues * (-frontness);
+                    float amp    = powf(10.f, gainDb / 40.f);
+                    float twoSqrtAmpAlpha = 2.f * sqrtf(amp) * shelfAlpha;
+                    float a0 = (amp + 1.f) - (amp - 1.f) * shelfCos + twoSqrtAmpAlpha;
+                    toneB0[i] =  amp * ((amp + 1.f) + (amp - 1.f) * shelfCos + twoSqrtAmpAlpha) / a0;
+                    toneB1[i] = -2.f * amp * ((amp - 1.f) + (amp + 1.f) * shelfCos) / a0;
+                    toneB2[i] =  amp * ((amp + 1.f) + (amp - 1.f) * shelfCos - twoSqrtAmpAlpha) / a0;
+                    toneA1[i] =  2.f * ((amp - 1.f) - (amp + 1.f) * shelfCos) / a0;
+                    toneA2[i] = ((amp + 1.f) - (amp - 1.f) * shelfCos - twoSqrtAmpAlpha) / a0;
+                }
 
-                // ITD (Woodworth, lateral angle); far ear only.
+                // ITD (Woodworth, lateral angle) stretched by HAAS; far ear only.
                 const float lateralMagnitude = fabsf(lateral);
                 const float farDelay = std::min((asinf(std::min(lateralMagnitude, 1.f)) + lateralMagnitude)
-                                                / (0.5f * float(M_PI) + 1.f) * itdMaxSamples
+                                                / (0.5f * float(M_PI) + 1.f) * haasMaxSamples
                                                 * (1.f + SPICE_ITD_WIDEN * spiceExtra),
-                                                ITD_BUFFER_SEC * sr);
+                                                HAAS_MAX_SEC * sr);
                 // Propagation is physical distance only; Spice does not exaggerate it.
                 propagationTarget[i] = doppler ? std::min(distance / SPEED_OF_SOUND, PROPAGATION_MAX_SEC) * sr : 0.f;
                 delayTargetL[i] = MIN_TAP_DELAY + ((lateral > 0.f) ? farDelay : 0.f);
@@ -1541,22 +1619,24 @@ struct HotPot : Module {
                 gainR[i] = sourceLevel * distanceGain * sqrtf(floorSq + (1.f - floorSq) * panR * panR);
 
                 // Room send, post level: plain constant-power pan, constant with distance.
-                // Past 100% Spice, distance also sets the wet/dry balance.
-                const float rearBoost = (1.f + REAR_SEND_BOOST * cues * std::max(0.f, -frontness))
-                                      * clamp(powf(distanceRatio, SPICE_WET_EXPONENT * spiceExtra), 0.25f, 4.f);
+                // Past 100% Spice, distance also sets the wet/dry balance (at or
+                // below 100% that factor is exactly 1, so it is skipped).
+                const float wetTilt   = (spiceExtra > 0.f)
+                                      ? clamp(powf(distanceRatio, SPICE_WET_EXPONENT * spiceExtra), 0.25f, 4.f) : 1.f;
+                const float rearBoost = (1.f + REAR_SEND_BOOST * cues * std::max(0.f, -frontness)) * wetTilt;
                 sendL[i] = sourceLevel * roomAmount * panL * rearBoost;
                 sendR[i] = sourceLevel * roomAmount * panR * rearBoost;
 
-                // Head shadow (Brown-Duda), angle from each ear's axis.
+                // Head shadow (Brown-Duda), angle from each ear's axis. The ears
+                // face opposite ways, so the left angle is pi minus the right.
                 const float thetaEarR = acosf(clamp(sinTheta, -1.f, 1.f));
-                const float thetaEarL = acosf(clamp(-sinTheta, -1.f, 1.f));
+                const float thetaEarL = float(M_PI) - thetaEarR;
                 const float alphaBase = 1.f + 0.5f * SHADOW_ALPHA_MIN;
                 const float alphaSwing = 1.f - 0.5f * SHADOW_ALPHA_MIN;
                 float alphaR = alphaBase + alphaSwing * cosf(thetaEarR * SHADOW_THETA_SCALE);
                 float alphaL = alphaBase + alphaSwing * cosf(thetaEarL * SHADOW_THETA_SCALE);
                 alphaR = clamp(1.f + (alphaR - 1.f) * cues * headFade, SHADOW_ALPHA_LOW, SHADOW_ALPHA_HIGH);
                 alphaL = clamp(1.f + (alphaL - 1.f) * cues * headFade, SHADOW_ALPHA_LOW, SHADOW_ALPHA_HIGH);
-                const float shadowNorm = 1.f / (1.f + shadowT);
                 shadowB0L[i] = (1.f + alphaL * shadowT) * shadowNorm;
                 shadowB1L[i] = (1.f - alphaL * shadowT) * shadowNorm;
                 shadowA1L[i] = (1.f - shadowT) * shadowNorm;
@@ -1564,6 +1644,8 @@ struct HotPot : Module {
                 shadowB1R[i] = (1.f - alphaR * shadowT) * shadowNorm;
                 shadowA1R[i] = (1.f - shadowT) * shadowNorm;
             }
+
+            homeSmoothedCount[r] = n;
 
             // -- Load targets into float_4 groups ------------------------------
             const float stepScale = 1.f / (float)CONTROL_DIV;
@@ -1577,21 +1659,40 @@ struct HotPot : Module {
                     group.active = true;
                 }
                 const int base = g * 4;
-                group.airCoeff = float_4::load(&airCoeff[base]);
-                group.bandGainStep[0] = (float_4::load(&presence[base]) - group.bandGain[0]) * stepScale;
-                group.bandGainStep[1] = (float_4::load(&lowLift[base])  - group.bandGain[1]) * stepScale;
-                group.bandGainStep[2] = (float_4::load(&earNotch[base]) - group.bandGain[2]) * stepScale;
-                group.rearStep        = (float_4::load(&rear[base])     - group.rear)        * stepScale;
+                // Tone and shadow coefficients ramp across the block like the
+                // gains: stepping them every block left a zipper on moving sources.
+                // A new group starts with them in place, so its ramps begin there.
+                if (group.snapPropagation) {
+                    group.toneB0    = float_4::load(&toneB0[base]);
+                    group.toneB1    = float_4::load(&toneB1[base]);
+                    group.toneB2    = float_4::load(&toneB2[base]);
+                    group.toneA1    = float_4::load(&toneA1[base]);
+                    group.toneA2    = float_4::load(&toneA2[base]);
+                    group.shadowB0L = float_4::load(&shadowB0L[base]);
+                    group.shadowB1L = float_4::load(&shadowB1L[base]);
+                    group.shadowB0R = float_4::load(&shadowB0R[base]);
+                    group.shadowB1R = float_4::load(&shadowB1R[base]);
+                }
+                group.toneStepB0 = (float_4::load(&toneB0[base]) - group.toneB0) * stepScale;
+                group.toneStepB1 = (float_4::load(&toneB1[base]) - group.toneB1) * stepScale;
+                group.toneStepB2 = (float_4::load(&toneB2[base]) - group.toneB2) * stepScale;
+                group.toneStepA1 = (float_4::load(&toneA1[base]) - group.toneA1) * stepScale;
+                group.toneStepA2 = (float_4::load(&toneA2[base]) - group.toneA2) * stepScale;
                 group.delayTargetL = float_4::load(&delayTargetL[base]);
                 group.delayTargetR = float_4::load(&delayTargetR[base]);
                 group.propagationTarget = float_4::load(&propagationTarget[base]);
+                // Air absorption ramps across the block, so distance changes
+                // (SIZE sweeps above all) never step the filter.
+                const float_4 airTarget = float_4::load(&airCoeff[base]);
+                if (group.snapPropagation) {
+                    // A new group starts with its ear delays and air filter in place.
+                    group.delayL   = group.delayTargetL;
+                    group.delayR   = group.delayTargetR;
+                    group.airCoeff = airTarget;
+                }
+                group.airStep = (airTarget - group.airCoeff) * stepScale;
                 // A new group, or Doppler just switched, starts at its distance
                 // instead of gliding there from zero.
-                if (group.snapPropagation) {
-                    // A new group also starts with its ear delays in place.
-                    group.delayL = group.delayTargetL;
-                    group.delayR = group.delayTargetR;
-                }
                 if (group.snapPropagation || doppler != dopplerWasOn) {
                     group.propagation     = group.propagationTarget;
                     group.snapPropagation = false;
@@ -1600,11 +1701,11 @@ struct HotPot : Module {
                 group.gainStepR = (float_4::load(&gainR[base]) - group.gainR) * stepScale;
                 group.sendStepL = (float_4::load(&sendL[base]) - group.sendL) * stepScale;
                 group.sendStepR = (float_4::load(&sendR[base]) - group.sendR) * stepScale;
-                group.shadowB0L = float_4::load(&shadowB0L[base]);
-                group.shadowB1L = float_4::load(&shadowB1L[base]);
+                group.shadowStepB0L = (float_4::load(&shadowB0L[base]) - group.shadowB0L) * stepScale;
+                group.shadowStepB1L = (float_4::load(&shadowB1L[base]) - group.shadowB1L) * stepScale;
+                group.shadowStepB0R = (float_4::load(&shadowB0R[base]) - group.shadowB0R) * stepScale;
+                group.shadowStepB1R = (float_4::load(&shadowB1R[base]) - group.shadowB1R) * stepScale;
                 group.shadowA1L = float_4::load(&shadowA1L[base]);
-                group.shadowB0R = float_4::load(&shadowB0R[base]);
-                group.shadowB1R = float_4::load(&shadowB1R[base]);
                 group.shadowA1R = float_4::load(&shadowA1R[base]);
                 group.levelGain = float_4::load(&levelGain[base]);
             }
@@ -1613,27 +1714,29 @@ struct HotPot : Module {
         // -- Globals ----------------------------------------------------------
         dopplerWasOn = doppler;
         {
-            // The largest far-ear delay this tick (Spice widening included)
-            // may take no less than ITD_MIN_SWEEP_SEC to cross.
-            const float widestFarDelay = std::min(itdMaxSamples * (1.f + SPICE_ITD_WIDEN * std::max(cues - 1.f, 0.f)),
-                                                  ITD_BUFFER_SEC * sr);
-            // A delay changing by k samples per sample shifts pitch by a ratio of 1 - k.
-            const float centsStep = 1.f - exp2f(-ITD_MAX_CENTS / 1200.f);
+            // The largest far-ear delay this tick (Haas and Spice widening
+            // included) may take no less than ITD_MIN_SWEEP_SEC to cross.
+            const float widestFarDelay = std::min(haasMaxSamples * (1.f + SPICE_ITD_WIDEN * std::max(cues - 1.f, 0.f)),
+                                                  HAAS_MAX_SEC * sr);
             itdMaxStep = std::max(centsStep, widestFarDelay / (ITD_MIN_SWEEP_SEC * sr));
         }
-        // Leveler: (1 - 1 / ratio) of every dB of mix RMS over the threshold is
-        // taken back, up to LEVELER_MAX_DB, gliding slowly, then ramped linearly
-        // across the next block.
+        // Headroom anticipation from the number of sources in the pot.
+        countGainTarget = 1.f / sqrtf(1.f + HEADROOM_PER_SOURCE * (float)std::max(totalSources - 1, 0));
+
+        // Mix compressor gain from the peak follower: soft knee in dB, then
+        // (1 - 1 / ratio) of every dB over the threshold is taken back.
         {
-            const float overDb = 10.f * log10f(std::max(levelerPower, 1e-12f) / (LEVELER_THRESHOLD_V * LEVELER_THRESHOLD_V));
-            const float reductionDb = std::min(std::max(overDb, 0.f) * (1.f - 1.f / LEVELER_RATIO), LEVELER_MAX_DB);
-            const float target = powf(10.f, -reductionDb / 20.f);
-            // Gentle as a rule; a gross overload (patch load, a slider slammed
-            // up) is pulled down quickly instead.
-            const float glideSec = (target >= levelerTarget) ? LEVELER_RELEASE_SEC
-                                 : (overDb > LEVELER_FAST_OVER_DB) ? LEVELER_FAST_SEC : LEVELER_ATTACK_SEC;
-            levelerTarget += (target - levelerTarget) * (1.f - expf(-tickSec / glideSec));
-            levelerGainStep = (levelerTarget - levelerGain) / (float)CONTROL_DIV;
+            const float overDb = 20.f * log10f(std::max(mixEnv, 1e-6f) / MIX_THRESHOLD_V);
+            const float slope  = 1.f - 1.f / MIX_RATIO;
+            float reductionDb  = 0.f;
+            if (overDb >= 0.5f * MIX_KNEE_DB) {
+                reductionDb = slope * overDb;
+            } else if (overDb > -0.5f * MIX_KNEE_DB) {
+                const float intoKnee = overDb + 0.5f * MIX_KNEE_DB;
+                reductionDb = slope * intoKnee * intoKnee / (2.f * MIX_KNEE_DB);
+            }
+            // Linear ramp to the new gain across the next block.
+            potGainStep = (powf(10.f, -reductionDb / 20.f) - potGain) / (float)CONTROL_DIV;
         }
         const float mainKnob = clamp(params[MAIN_PARAM].getValue()
                                    + params[MAIN_ATT_PARAM].getValue() * inputs[MAIN_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
@@ -1643,7 +1746,6 @@ struct HotPot : Module {
         volumeTarget = std::min(4.f * mainKnob * mainKnob, 1.f);
         driveTarget  = powf(10.f, driveNorm * TUBE_DRIVE_MAX_DB / 20.f);
         biasTarget   = TUBE_BIAS_MAX * driveNorm;
-        tubeWanted   = driveNorm > 0.f;
         {
             // Makeup: undo half (in dB) of the compression the reference level
             // sees at this drive, so drive changes the character more than the level.
@@ -1725,26 +1827,15 @@ struct HotPot : Module {
             for (int g = 0; g * 4 < n; ++g) {
                 HotPotVoiceGroup& group = groups[r][g];
                 float_4 in = float_4::load(&gathered[g * 4]);
-                group.activity = simd::fmax(simd::fabs(in), group.activity * activityReleaseCoeff);
 
                 // Air absorption one-pole.
                 group.airState = group.airCoeff * (group.airState - in) + in;
+                group.airCoeff += group.airStep;
 
-                // Front/back tone. Three bands (TDF2, b1 = 0, b2 = -b0), then the
-                // highs as x - 2 lp1 + lp2 (two one-poles: a critically damped highpass).
-                const float_4 dry = group.airState;
-                float_4 tone = dry;
-                for (int k = 0; k < 3; ++k) {
-                    const float_4 band = bandB0[k] * dry + group.bandZ1[k];
-                    group.bandZ1[k] = group.bandZ2[k] - bandA1[k] * band;
-                    group.bandZ2[k] = -bandB0[k] * dry - bandA2[k] * band;
-                    tone += group.bandGain[k] * band;
-                    group.bandGain[k] += group.bandGainStep[k];
-                }
-                group.rearLow1 += (dry - group.rearLow1) * rearLowCoeff;
-                group.rearLow2 += (group.rearLow1 - group.rearLow2) * rearLowCoeff;
-                tone += group.rear * (dry - 2.f * group.rearLow1 + group.rearLow2);
-                group.rear += group.rearStep;
+                // Front/back tone, TDF2.
+                float_4 tone = group.toneB0 * group.airState + group.toneZ1;
+                group.toneZ1 = group.toneB1 * group.airState - group.toneA1 * tone + group.toneZ2;
+                group.toneZ2 = group.toneB2 * group.airState - group.toneA2 * tone;
 
                 // Delay line and slewed ear taps.
                 group.delay.write(tone);
@@ -1774,6 +1865,10 @@ struct HotPot : Module {
                 group.gainR += group.gainStepR;
                 group.sendL += group.sendStepL;
                 group.sendR += group.sendStepR;
+                group.toneB0 += group.toneStepB0; group.toneB1 += group.toneStepB1; group.toneB2 += group.toneStepB2;
+                group.toneA1 += group.toneStepA1; group.toneA2 += group.toneStepA2;
+                group.shadowB0L += group.shadowStepB0L; group.shadowB1L += group.shadowStepB1L;
+                group.shadowB0R += group.shadowStepB0R; group.shadowB1R += group.shadowStepB1R;
 
                 group.level = simd::fmax(simd::fabs(tone) * group.levelGain, group.level * levelReleaseCoeff);
             }
@@ -1784,133 +1879,93 @@ struct HotPot : Module {
         const float sendL = sendBusL[0] + sendBusL[1] + sendBusL[2] + sendBusL[3];
         const float sendR = sendBusR[0] + sendBusR[1] + sendBusR[2] + sendBusR[3];
 
+        // -- Headroom ------------------------------------------------------------
+        // The source-count gain applies to dry and send alike, so the room
+        // balance holds as the pot fills.
+        countGainCurrent += (countGainTarget - countGainCurrent) * smoothCoeff;
+
         // The menu option takes effect here, between samples: the tank is
         // retuned and cleared, its buffers already sized for either rate.
         if (roomFullRate != roomFullRateActive) {
             roomFullRateActive = roomFullRate;
             room.setRate(roomFullRate ? sampleRate : 0.5f * sampleRate);
-            roomDecimator.reset();
-            roomInterpolator.reset();
-            roomHeld = float_4(0.f);
+            roomResampler.reset();
+            roomPending = float_4(0.f);
             roomSnapPending = true;
             lastRoomArgs[0] = -1.f;
         }
 
-        // Tank sleep: wakes on any send, sleeps after a quiet stretch.
-        const bool sendActive = fabsf(sendL) + fabsf(sendR) > ROOM_SLEEP_LEVEL;
-        if (sendActive) { roomAsleep = false; roomQuietSamples = 0; }
-
         float wetL = 0.f, wetR = 0.f;
-        if (roomAsleep) {
-            // Silent: the tail was already below ROOM_SLEEP_LEVEL.
-        } else if (roomFullRateActive) {
-            room.process(sendL, sendR, wetL, wetR);
+        if (roomFullRateActive) {
+            room.process(sendL * countGainCurrent, sendR * countGainCurrent, wetL, wetR);
         } else {
             // Half-rate room: band-limit the send, run the tank on every other
             // sample, and rebuild the full rate from zero-stuffed output (x2
-            // keeps the level).
-            const float_4 sendBand = roomDecimator.process(float_4(sendL, sendR, 0.f, 0.f));
+            // keeps the level). Both filters run in the one pass.
+            const float_4 send     = float_4(sendL * countGainCurrent, sendR * countGainCurrent, 0.f, 0.f);
+            const float_4 filtered = roomResampler.process(float_4(_mm_movelh_ps(send.v, roomPending.v)));
             if (!roomPhase) {
                 float tankL = 0.f, tankR = 0.f;
-                room.process(sendBand[0], sendBand[1], tankL, tankR);
-                roomHeld = float_4(tankL, tankR, 0.f, 0.f);
+                room.process(filtered[0], filtered[1], tankL, tankR);
+                roomPending = float_4(tankL * 2.f, tankR * 2.f, 0.f, 0.f);
+            } else {
+                roomPending = float_4(0.f);
             }
-            const float_4 wet = roomInterpolator.process(roomPhase ? float_4(0.f) : roomHeld * 2.f);
             roomPhase = !roomPhase;
-            wetL = wet[0];
-            wetR = wet[1];
-        }
-        if (!roomAsleep && !sendActive) {
-            if (fabsf(wetL) + fabsf(wetR) > ROOM_SLEEP_LEVEL) roomQuietSamples = 0;
-            else if (++roomQuietSamples > (int)(ROOM_SLEEP_SEC * sampleRate)) roomAsleep = true;
+            wetL = filtered[2];
+            wetR = filtered[3];
         }
         wetFollower += (fabsf(wetL) + fabsf(wetR) - wetFollower) * smoothCoeff;
 
-        // -- Headroom ------------------------------------------------------------
-        // Tracks are already normalized; the bus gets its fixed trim and the
-        // slow leveler, which only listens to the mix RMS.
-        const float mixL = (dryL + wetL) * MIX_TRIM;
-        const float mixR = (dryR + wetR) * MIX_TRIM;
-        levelerPower += (std::max(mixL * mixL, mixR * mixR) - levelerPower) * levelerPowerCoeff;
-        levelerGain  += levelerGainStep;
+        const float mixL = dryL * countGainCurrent + wetL;
+        const float mixR = dryR * countGainCurrent + wetR;
+        const float mixPeak = std::max(fabsf(mixL), fabsf(mixR));
+        mixEnv  += (mixPeak - mixEnv) * ((mixPeak > mixEnv) ? mixAttackCoeff : mixReleaseCoeff);
+        potGain += potGainStep;
 
         // -- Simmer: volume, then the tube stage ----------------------------------
-        const bool mainMuted = params[MAIN_MUTE_PARAM].getValue() > 0.5f;
-        if (warmupHold > 0) {
-            // Warm-up hold: settings apply at once rather than gliding from power-on values.
-            volumeCurrent = volumeTarget;
-            driveCurrent  = driveTarget;
-            biasCurrent   = biasTarget;
-            makeupCurrent = makeupTarget;
-            mainMuteGain  = mainMuted ? 0.f : 1.f;
-            tubeBlend     = tubeWanted ? 1.f : 0.f;
-        }
         volumeCurrent += (volumeTarget - volumeCurrent) * smoothCoeff;
         driveCurrent  += (driveTarget  - driveCurrent)  * smoothCoeff;
         biasCurrent   += (biasTarget   - biasCurrent)   * smoothCoeff;
         makeupCurrent += (makeupTarget - makeupCurrent) * smoothCoeff;
+        const bool mainMuted = params[MAIN_MUTE_PARAM].getValue() > 0.5f;
         mainMuteGain += ((mainMuted ? 0.f : 1.f) - mainMuteGain) * mainMuteCoeff;
         lights[MAIN_MUTE_LIGHT].setBrightness(mainMuted ? 1.f : 0.f);
 
         // Tube stage (see HotPotTube). The static bias offset g(b) is removed,
         // and the output is divided by the small-signal slope g'(b) =
-        // (1 + b^2)^-1.5, so low levels pass at unity. Bypassed at or below
-        // unity, with a short crossfade either way.
-        tubeBlend += ((tubeWanted ? 1.f : 0.f) - tubeBlend) * tubeFadeCoeff;
-        if (!tubeWanted && tubeBlend < 1e-4f) tubeBlend = 0.f;
-        if (tubeWanted && tubeBlend > 0.9999f) tubeBlend = 1.f;
-        const float_4 bypassed = float_4(mixL, mixR, 0.f, 0.f) * (volumeCurrent * levelerGain);
-        float_4 shaped = bypassed;
-        if (tubeBlend > 0.f) {
-            const float inScale   = volumeCurrent * levelerGain * driveCurrent / TUBE_HEADROOM_V;
-            const float biasSq    = 1.f + biasCurrent * biasCurrent;
-            const float biasSqrt  = sqrtf(biasSq);
-            const float biasOut   = biasCurrent / biasSqrt;
-            const float outScale  = biasSq * biasSqrt * TUBE_HEADROOM_V / driveCurrent * makeupCurrent;
-            const float_4 tubeOut = tube.process(float_4(mixL, mixR, 0.f, 0.f), inScale, biasCurrent, biasOut, outScale);
-            shaped   = bypassed + (tubeOut - bypassed) * tubeBlend;
-            tubeIdle = false;
-        } else if (!tubeIdle) {
-            // Fresh state for the next fade-in.
-            tube.reset();
-            tubeIdle = true;
-        }
+        // (1 + b^2)^-1.5, so low levels pass at unity.
+        const float inScale   = volumeCurrent * potGain * driveCurrent / TUBE_HEADROOM_V;
+        const float biasSq    = 1.f + biasCurrent * biasCurrent;
+        const float biasSqrt  = sqrtf(biasSq);
+        const float biasOut   = biasCurrent / biasSqrt;
+        const float outScale  = biasSq * biasSqrt * TUBE_HEADROOM_V / driveCurrent * makeupCurrent;
+        const float_4 tubeOut = tube.process(float_4(mixL, mixR, 0.f, 0.f), inScale, biasCurrent, biasOut, outScale);
 
         // Warmth: a gentle post-drive rolloff that closes as drive rises, then
         // the DC the asymmetry leaves behind is taken out.
-        warmState += (shaped - warmState) * (1.f - warmCoeff);
+        warmState += (tubeOut - warmState) * (1.f - warmCoeff);
         dcOutLast  = warmState - dcInLast + dcCoeff * dcOutLast;
         dcInLast   = warmState;
         const float warmL = dcOutLast[0];
         const float warmR = dcOutLast[1];
 
-        if (warmupGain < 1.f) {
-            if (warmupHold > 0) --warmupHold;
-            else warmupGain = std::min(warmupGain + warmupStep, 1.f);
-        }
-        // Eased: the warm-up gain is squared. Everything upstream (room,
-        // leveler) runs at full level underneath, so it has settled by the
-        // time the fade completes.
-        const float warmupCurve = warmupGain * warmupGain;
-        float outL = busSatL.process(warmL) * mainMuteGain * warmupCurve;
-        float outR = busSatR.process(warmR) * mainMuteGain * warmupCurve;
+        float outL = busSatL.process(warmL) * mainMuteGain;
+        float outR = busSatR.process(warmR) * mainMuteGain;
 
         // Non-finite recovery: clear every stateful stage.
         if (!std::isfinite(outL) || !std::isfinite(outR)) {
             outL = outR = 0.f;
             room.clear();
-            roomDecimator.reset();
-            roomInterpolator.reset();
-            roomHeld = float_4(0.f);
+            roomResampler.reset();
+            roomPending = float_4(0.f);
             busSatL.reset();
             busSatR.reset();
             wetFollower = 0.f;
-            levelerPower    = 0.f;
-            levelerTarget   = levelerGain = 1.f;
-            levelerGainStep = 0.f;
+            mixEnv      = 0.f;
+            potGain     = 1.f;
+            potGainStep = 0.f;
             tube.reset();
-            tubeBlend = 0.f;
-            tubeIdle  = true;
             warmState = dcInLast = dcOutLast = float_4(0.f);
             for (int r = 0; r < NUM_RAILS; ++r)
                 for (int g = 0; g < RAIL_GROUPS; ++g) { groups[r][g].resetState(); groups[r][g].active = false; }
@@ -2026,15 +2081,13 @@ struct HotPotDisplay : TransparentWidget {
                 dotY = fanBackY + toFront * (fanFrontY - fanBackY);
             }
 
-            // Log scale: a dB window below the reference maps to 0..1.
-            const float levelDb    = 20.f * log10f(std::max(source.level, 1e-6f) / DISPLAY_REF_VOLTS);
-            const float brightness = clamp(1.f + levelDb / DISPLAY_RANGE_DB, 0.f, 1.f);
-            const float radius = 1.8f + 4.f * brightness;
+            const float brightness = clamp(source.level / 5.f, 0.f, 1.f);
+            const float radius = 2.8f + 2.4f * brightness;
             const NVGcolor color = railColor[rail];
 
             nvgBeginPath(args.vg);
             nvgCircle(args.vg, dotX, dotY, radius);
-            const float alpha = 0.2f + 0.8f * brightness;
+            const float alpha = 0.25f + 0.75f * brightness;
             if (source.isB) {
                 nvgStrokeColor(args.vg, nvgTransRGBAf(color, alpha));
                 nvgStrokeWidth(args.vg, 1.4f);
@@ -2085,9 +2138,9 @@ struct HotPotWidget : ModuleWidget {
         // Buttons: motion mode over the position slider (lit in the rail color
         // when mirrored), mute over the level slider.
         addParam(createParamCentered<HotPotLatch>(p(stripX[0], yButton), module, HotPot::MODE_PARAM + rail));
-        addChild(createLightCentered<LargeLight<TL>>(p(stripX[0], yButton), module, HotPot::MODE_LIGHT + rail));
+        addChild(createLightCentered<MediumLight<TL>>(p(stripX[0], yButton), module, HotPot::MODE_LIGHT + rail));
         addParam(createParamCentered<HotPotLatch>(p(stripX[2], yButton), module, HotPot::MUTE_PARAM + rail));
-        addChild(createLightCentered<LargeLight<RedLight>>(p(stripX[2], yButton), module, HotPot::MUTE_LIGHT + rail));
+        addChild(createLightCentered<MediumLight<RedLight>>(p(stripX[2], yButton), module, HotPot::MUTE_LIGHT + rail));
 
         // Sliders: position, spread, level -- each over its trim and CV.
         const int sliderParams[3] = { HotPot::POS_PARAM + rail, HotPot::SPREAD_PARAM + rail, HotPot::LEVEL_PARAM + rail };
@@ -2133,7 +2186,7 @@ struct HotPotWidget : ModuleWidget {
         // Skim sits at the center of the pot, where the listener is.
         const float potCenterX = 0.5f * panelWidth, potCenterY = potTop + 0.5f * potSize;
         addParam(createParamCentered<TL1105>(p(potCenterX, potCenterY), module, HotPot::RESET_PARAM));
-        addChild(createLightCentered<LargeLight<RedLight>>(p(potCenterX, potCenterY), module, HotPot::RESET_LIGHT));
+        addChild(createLightCentered<MediumLight<RedLight>>(p(potCenterX, potCenterY), module, HotPot::RESET_LIGHT));
 
         // -- Flanks: knob, trim, CV columns -----------------------------------
         const float yKnob = 17.f, yFlankTrim = 28.5f, yFlankCV = 37.f;
@@ -2172,7 +2225,7 @@ struct HotPotWidget : ModuleWidget {
         // -- MAIN: mute, volume / drive slider, trim and CV, over the stereo outputs --
         const float mainX = stripX[2][2] + stripGap;
         addParam(createParamCentered<HotPotLatch>(p(mainX, yButton), module, HotPot::MAIN_MUTE_PARAM));
-        addChild(createLightCentered<LargeLight<RedLight>>(p(mainX, yButton), module, HotPot::MAIN_MUTE_LIGHT));
+        addChild(createLightCentered<MediumLight<RedLight>>(p(mainX, yButton), module, HotPot::MAIN_MUTE_LIGHT));
         addParam(createParamCentered<HotPotSlider<WhiteLight>>(p(mainX, ySlider), module, HotPot::MAIN_PARAM));
         addParam(createParamCentered<Trimpot>(p(mainX, yTrim), module, HotPot::MAIN_ATT_PARAM));
         addInput(createInputCentered<ThemedPJ301MPort>(p(mainX, yCV), module, HotPot::MAIN_CV_INPUT));
@@ -2192,9 +2245,9 @@ struct HotPotWidget : ModuleWidget {
         menu->addChild(createIndexPtrSubmenuItem("Fan",   shapeNames, &module->motionShape[2]));
 
         menu->addChild(new MenuSeparator);
-        menu->addChild(createBoolPtrMenuItem("Ear delay (ITD)", "", &module->itdOn));
+        const std::vector<std::string> haasNames = { "Natural", "Wide", "Wider", "Widest (60 ms)" };
+        menu->addChild(createIndexPtrSubmenuItem("Haas far-ear delay", haasNames, &module->haasMode));
         menu->addChild(createBoolPtrMenuItem("Doppler", "", &module->doppler));
-
         menu->addChild(createBoolPtrMenuItem("Full-bandwidth room (more CPU)", "", &module->roomFullRate));
     }
 };
