@@ -53,10 +53,11 @@ void init(Plugin* p) {
     p->addModel(modelHaze);
     p->addModel(modelTwang);
     p->addModel(modelHotPot);
-#if !defined(METAMODULE)
     p->addModel(modelMala);
     p->addModel(modelFuzzy);
     p->addModel(modelVega);
+#if !defined(METAMODULE)
+#endif
     
 
     

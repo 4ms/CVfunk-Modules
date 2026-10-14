@@ -35,6 +35,7 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/Decima.cpp
     ${CVFUNK_SOURCE_DIR}/src/EnvelopeArray.cpp
     ${CVFUNK_SOURCE_DIR}/src/FlowerPatch.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Fuzzy.cpp
     ${CVFUNK_SOURCE_DIR}/src/Glass.cpp
     ${CVFUNK_SOURCE_DIR}/src/Hammer.cpp
     ${CVFUNK_SOURCE_DIR}/src/Haze.cpp
@@ -43,7 +44,7 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/Hub.cpp
     ${CVFUNK_SOURCE_DIR}/src/ImpulseController.cpp
     ${CVFUNK_SOURCE_DIR}/src/JunkDNA.cpp
-    # ${CVFUNK_SOURCE_DIR}/src/Mala.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Mala.cpp
     ${CVFUNK_SOURCE_DIR}/src/Magnets.cpp
     ${CVFUNK_SOURCE_DIR}/src/Morta.cpp
     ${CVFUNK_SOURCE_DIR}/src/Node.cpp
@@ -67,6 +68,7 @@ target_sources(CVfunk
     ${CVFUNK_SOURCE_DIR}/src/Triton.cpp
     ${CVFUNK_SOURCE_DIR}/src/Tuner.cpp
     ${CVFUNK_SOURCE_DIR}/src/Twang.cpp
+    ${CVFUNK_SOURCE_DIR}/src/Vega.cpp
     ${CVFUNK_SOURCE_DIR}/src/Weave.cpp
     ${CVFUNK_SOURCE_DIR}/src/Wonk.cpp
 

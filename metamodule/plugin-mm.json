@@ -171,8 +171,16 @@
       "name": "Twang"
     },
     {
-      "slug": "HotPot",
-      "name": "HotPot"
+      "slug": "Fuzzy",
+      "name": "Fuzzy"
+    },
+    {
+      "slug": "Vega",
+      "name": "Vega"
+    },
+    {
+      "slug": "Mala",
+      "name": "Mala"
 	}
   ]
 }
