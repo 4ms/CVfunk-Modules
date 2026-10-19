@@ -81,6 +81,8 @@ target_include_directories(CVfunk PRIVATE
 
 set_property(TARGET CVfunk PROPERTY CXX_STANDARD 20)
 
+set_source_files_properties(${CVFUNK_SOURCE_DIR}/src/Mala.cpp PROPERTIES COMPILE_OPTIONS "-ffinite-math-only;-funsafe-math-optimizations")
+
 if("${INSTALL_DIR}" STREQUAL "")
     set(INSTALL_DIR ${CMAKE_CURRENT_LIST_DIR}/metamodule-plugins)
 endif()
