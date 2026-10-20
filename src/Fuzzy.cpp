@@ -43,8 +43,8 @@ struct ModelInfo {
 //
 //   The input is levelled in the back end so any source arrives at the
 //   level of a hot single-coil pickup; GUITAR then cleans up the same way
-//   whatever is driving it. Mono in, mono out, 4x oversampled (off, 2x
-//   and 8x in the context menu).
+//   whatever is driving it. Mono in, mono out, 2x oversampled (off, 4x
+//   and 8x in the context menu; MetaModule offers off and 2x).
 
 
 // Output gains are measured for equal loudness (K-weighted, BS.1770 style)
@@ -150,11 +150,19 @@ static const float kSmoothTau = 0.010f;
 static const int   kControlBlock = 32;
 
 // ---- Oversampling --------------------------------------------------------------------
-// Context menu: circuit substeps per base sample. 4x is the voicing every
-// model was tuned at; fewer costs proportionally less CPU but aliases more
-// and lets the fastest feedback loops ring, 8x costs twice 4x.
+// Context menu: circuit substeps per base sample. 2x is the default: each
+// step up doubles the CPU, and 4x and 8x mostly lower the aliasing on high
+// notes (on a 1 kHz tone, by about 10 dB per step). Off aliases more and lets
+// the fastest feedback loops ring. MetaModule stops at 2x (a patch saved at
+// 4x or 8x runs at 2x there), and runs KAIJU and HORNET at 1x.
 static const int kOversampleFactors[4] = { 1, 2, 4, 8 };
-static const int kDefaultOversampleIndex = 2;
+static const int kModelKaiju = 5, kModelHornet = 6;   // indices into kModels
+static const int kDefaultOversampleIndex = 1;
+#ifdef METAMODULE
+static const int kMaxOversampleIndex = 1;
+#else
+static const int kMaxOversampleIndex = 3;
+#endif
 
 
 struct Fuzzy : Module {
@@ -313,7 +321,14 @@ struct Fuzzy : Module {
     double stepTime(float sampleRate) { return 1.0 / ((double)sampleRate * oversample); }
 
     int requestedOversample() {
-        int index = clamp((int)std::round(params[OVERSAMPLE_PARAM].getValue()), 0, 3);
+        int index = clamp((int)std::round(params[OVERSAMPLE_PARAM].getValue()), 0, kMaxOversampleIndex);
+#ifdef METAMODULE
+        // Kaiju and Hornet, the two three-stage circuits, are the heaviest:
+        // they run without oversampling there. Selecting one re-initializes
+        // at 1x (no crossfade), and leaving it goes back to the setting.
+        int model = readModel();
+        if (model == kModelKaiju || model == kModelHornet) index = 0;
+#endif
         return kOversampleFactors[index];
     }
 
@@ -538,7 +553,7 @@ struct Fuzzy : Module {
         float targetGain = kTargetPeakVolts / std::max(levelEnvelope, kLevelFloorVolts);
         levelGain += (targetGain < levelGain ? levelDropK : levelAttackK) * (targetGain - levelGain);
         float emf = in * levelGain;
-        if (!std::isfinite(emf)) { emf = 0.f; levelEnvelope = kLevelFloorVolts; levelGain = 0.f; }
+        if (!fuzzy::finiteBits(emf)) { emf = 0.f; levelEnvelope = kLevelFloorVolts; levelGain = 0.f; }
 
         // ---- Footswitch --------------------------------------------------------------
         if (inputs[SWITCH_CV_INPUT].isConnected() && switchTrigger.process(inputs[SWITCH_CV_INPUT].getVoltage(), 0.1f, 1.f))
@@ -554,8 +569,11 @@ struct Fuzzy : Module {
             if (++dryIndex >= dryDelay) dryIndex = 0;
         }
 
+        // Nothing patched into IN: the circuits hold where they are rather
+        // than simulate an idle pedal's hiss, and pick up from there when a
+        // cable arrives.
         float wet = 0.f;
-        if (!circuitsIdle) wet = runCircuits(emf, args.sampleRate);
+        if (!circuitsIdle && inputs[IN_INPUT].isConnected()) wet = runCircuits(emf, args.sampleRate);
         volumeGain += volumeStep;
         wet *= volumeGain;
 
@@ -573,7 +591,9 @@ struct Fuzzy : Module {
             float over = (magnitude - kLimitKnee) * (1.f / room);
             out = std::copysign(kLimitKnee + room * over / std::sqrt(1.f + over * over), out);
         }
-        if (!std::isfinite(out)) out = 0.f;
+        // A non-finite sample here would stay in the DC blocker's state and
+        // silence everything after it: clear the blocker with it.
+        if (!fuzzy::finiteBits(out)) { out = 0.f; blockState1 = blockState2 = 0.f; }
         outputs[OUT_OUTPUT].setVoltage(out);
 
         meterPower += meterK * (out * out - meterPower);
@@ -624,9 +644,20 @@ struct Fuzzy : Module {
         // A diverged circuit is restarted at its operating point. Any
         // non-finite junction or state reaches the output within a substep,
         // so the output is checked each sample and the full state each block.
-        if (!std::isfinite(activeSum) || (controlCounter == 0 && !models[activeModel]->finite())) {
+        if (!fuzzy::finiteBits(activeSum) || (controlCounter == 0 && !models[activeModel]->finite())) {
             models[activeModel]->start(stepTime(sampleRate), false);
             highPassState[activeModel] = highPassInput[activeModel] = 0.f;
+            upsampler[activeModel].reset();
+        }
+        // Nothing non-finite may enter the downsampler's history: it would
+        // come back out for a whole kernel and poison the DC blocker after
+        // it. A circuit fading out that diverged is dropped with its fade.
+        bool mixedFinite = true;
+        for (int s = 0; s < oversample; ++s) mixedFinite = mixedFinite && fuzzy::finiteBits(mixed[s]);
+        if (!mixedFinite) {
+            if (fadingModel >= 0) { fadingModel = -1; fadePosition = 1.f; fadeIn = 1.f; fadeOut = 0.f; }
+            for (int s = 0; s < oversample; ++s) mixed[s] = 0.f;
+            resampler.reset();
         }
         senseDevices();
         return resampler.down(mixed);
@@ -836,8 +867,12 @@ struct FuzzyWidget : ModuleWidget {
         Fuzzy* fuzzyModule = getModule<Fuzzy>();
         if (!fuzzyModule) return;
         menu->addChild(new MenuSeparator);
-        menu->addChild(createIndexSubmenuItem("Oversampling", { "Off (1x)", "2x", "4x (default)", "8x" },
-            [=]() { return (size_t)clamp((int)std::round(fuzzyModule->params[Fuzzy::OVERSAMPLE_PARAM].getValue()), 0, 3); },
+#ifdef METAMODULE
+        menu->addChild(createIndexSubmenuItem("Oversampling", { "Off (1x)", "2x (default)" },
+#else
+        menu->addChild(createIndexSubmenuItem("Oversampling", { "Off (1x)", "2x (default)", "4x", "8x" },
+#endif
+            [=]() { return (size_t)clamp((int)std::round(fuzzyModule->params[Fuzzy::OVERSAMPLE_PARAM].getValue()), 0, kMaxOversampleIndex); },
             [=](size_t index) { fuzzyModule->params[Fuzzy::OVERSAMPLE_PARAM].setValue((float)index); }));
     }
 
