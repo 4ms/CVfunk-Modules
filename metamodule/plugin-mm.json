@@ -168,7 +168,68 @@
     },
     {
       "slug": "Twang",
-      "name": "Twang"
+      "name": "Twang",
+      "class": "Twang",
+      "groups": {
+        "Bow": [
+          "BOW_SPEED_PARAM", "BOW_SPEED_TRIM_PARAM",
+          "BOW_LEVEL_PARAM", "BOW_LEVEL_TRIM_PARAM",
+          "BOW_POSITION_PARAM", "BOW_POSITION_TRIM_PARAM",
+          "BOW_PRESSURE_PARAM", "BOW_PRESSURE_TRIM_PARAM",
+          "SLIP_PARAM", "SLIP_TRIM_PARAM",
+          "BOW_SPEED_CV_INPUT",
+          "BOW_LEVEL_CV_INPUT",
+          "BOW_POSITION_CV_INPUT",
+          "BOW_PRESSURE_CV_INPUT",
+          "SLIP_CV_INPUT"
+        ],
+        "Pluck": [
+          "PLUCK_BUTTON_PARAM",
+          "PLUCK_VELOCITY_PARAM",
+          "TWANG_PARAM", "TWANG_TRIM_PARAM",
+          "ATTACK_PARAM", "ATTACK_TRIM_PARAM",
+          "PLUCK_POSITION_PARAM", "PLUCK_POSITION_TRIM_PARAM",
+          "DECAY_PARAM", "DECAY_TRIM_PARAM",
+          "PLUCK_HARDNESS_PARAM", "PLUCK_HARDNESS_TRIM_PARAM",
+          "PLUCK_TRIG_INPUT",
+          "TWANG_CV_INPUT",
+          "ATTACK_CV_INPUT",
+          "PLUCK_POSITION_CV_INPUT",
+          "DECAY_CV_INPUT",
+          "PLUCK_HARDNESS_CV_INPUT"
+        ]
+      },
+      "order": [
+        "FREQ_PARAM",
+        "VOLUME_PARAM",
+        "MUTE_BUTTON_PARAM", "MUTE_PARAM", "MUTE_TRIM_PARAM",
+        "FM_TRIM_PARAM",
+        "RESONATOR_MATERIAL_PARAM", "RESONATOR_MATERIAL_TRIM_PARAM",
+        "TONE_PARAM", "TONE_TRIM_PARAM",
+        "RESONATOR_SIZE_PARAM", "RESONATOR_SIZE_TRIM_PARAM",
+        "DRIVE_PARAM", "DRIVE_TRIM_PARAM",
+        "Bow",
+        "Pluck",
+        "VOCT_INPUT",
+        "VOLUME_CV_INPUT",
+        "MUTE_CV_INPUT",
+        "FM_CV_INPUT",
+        "RESONATOR_MATERIAL_CV_INPUT",
+        "TONE_CV_INPUT",
+        "RESONATOR_SIZE_CV_INPUT",
+        "DRIVE_CV_INPUT",
+        "OUT_L",
+        "OUT_R"
+      ],
+      "names": {
+        "MUTE_PARAM": "Mute Depth",
+        "RESONATOR_MATERIAL_PARAM": "Material",
+        "RESONATOR_MATERIAL_TRIM_PARAM": "Material CV Trim",
+        "RESONATOR_MATERIAL_CV_INPUT": "Material CV In",
+        "RESONATOR_SIZE_PARAM": "Size",
+        "RESONATOR_SIZE_TRIM_PARAM": "Size CV Trim",
+        "RESONATOR_SIZE_CV_INPUT": "Size CV In"
+      }
     },
     {
       "slug": "Fuzzy",
@@ -180,7 +241,49 @@
     },
     {
       "slug": "Mala",
-      "name": "Mala"
-	}
+      "name": "Mala",
+      "class": "Mala",
+      "order": [
+        "HEAT_PARAM", "HEAT_TRIM_PARAM",
+        "SHAPE_PARAM", "SHAPE_TRIM_PARAM",
+        "RATIO_PARAM", "RATIO_TRIM_PARAM",
+        "MORPH_PARAM", "MORPH_TRIM_PARAM",
+        "SPREAD_PARAM", "SPREAD_TRIM_PARAM",
+        "DETUNE_PARAM", "DETUNE_TRIM_PARAM",
+        "PHASE_PARAM", "PHASE_TRIM_PARAM",
+        "FM_AMT_PARAM",
+        "FREQ_PARAM",
+        "MODRATE_PARAM", "MODRATE_TRIM_PARAM",
+        "MODDEPTH_PARAM", "MODDEPTH_TRIM_PARAM",
+        "VOLUME_PARAM",
+        "MAP_HEAT_PARAM",
+        "MAP_SHAPE_PARAM",
+        "MAP_RATIO_PARAM",
+        "MAP_MORPH_PARAM",
+        "MAP_SPREAD_PARAM",
+        "MAP_DETUNE_PARAM",
+        "MAP_PHASE_PARAM",
+        "QUANT_PARAM",
+        "SYNC_PARAM",
+        "SYM_PARAM",
+        "HEAT_CV_INPUT",
+        "SHAPE_CV_INPUT",
+        "RATIO_CV_INPUT",
+        "MORPH_CV_INPUT",
+        "SPREAD_CV_INPUT",
+        "DETUNE_CV_INPUT",
+        "PHASE_CV_INPUT",
+        "FM_INPUT",
+        "MODRATE_CV_INPUT",
+        "MODDEPTH_CV_INPUT",
+        "VOCT_INPUT",
+        "MOD_OUTPUT",
+        "A_OUTPUT",
+        "B_OUTPUT",
+        "VOLUME_CV_INPUT",
+        "OUT_L_OUTPUT",
+        "OUT_R_OUTPUT"
+      ]
+    }
   ]
 }
